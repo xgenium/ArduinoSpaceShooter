@@ -148,6 +148,7 @@ class SpaceShip
 {
     private:
         int x, y;
+	int level;
         int xSpeed, ySpeed;
         int width, height;
         int health, ammo;
@@ -166,6 +167,7 @@ class SpaceShip
                 y(posY),
                 xSpeed(0),
                 ySpeed(0),
+		level(1),
                 width(bmpWidth),
                 height(bmpHeight),
                 health(health),
@@ -184,6 +186,7 @@ class SpaceShip
         int getHeight();
         bool getIsActive();
         int getHealth();
+	int getLevel();
 	bool getDeathAnimationStatus();
 	ShipType getShipType();
         void setPosition(int posX, int posY);
@@ -192,6 +195,7 @@ class SpaceShip
 	void setHealth(int newHealth);
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
+	void setLevel(int lvl);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
         void shoot(BulletPool *bp);
         int getCooldown();

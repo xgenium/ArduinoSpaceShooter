@@ -37,8 +37,17 @@ void Game::update()
 	enemyPool->shoot(bulletPool);
     }
     firstLoop = false;
-    if (enemyPool->getActiveEnemyCount() == 0 && millis() - enemyPool->getLastShotEnemyTime() >= 1200)
+    if (enemyPool->getActiveEnemyCount() == 0 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
 	enemyPool->createEnemy(random(1, 10), random(1, 10), SPACESHIP_BMP_WIDTH, SPACESHIP_BMP_HEIGHT, xored);
+    }
+
+    if (score < 3) {
+	spaceShip->setLevel(1);
+    } else if (score < 5) {
+	spaceShip->setLevel(2);
+    } else {
+	spaceShip->setLevel(3);
+    }
 
     bulletPool->gameUpdate();
     int add = enemyPool->gameUpdate(bulletPool);
@@ -206,6 +215,11 @@ int SpaceShip::getHealth()
     return health;
 }
 
+int SpaceShip::getLevel()
+{
+    return level;
+}
+
 bool SpaceShip::getDeathAnimationStatus()
 {
     return deathAnimation.isHappening;
@@ -269,6 +283,11 @@ void SpaceShip::updatePosition()
 
 }
 
+void SpaceShip::setLevel(int lvl)
+{
+    level = lvl;
+}
+
 void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 {
     updateSpeed(jstick->getX(), jstick->getY());
@@ -303,7 +322,22 @@ void SpaceShip::shoot(BulletPool *bp)
 
     // burstEnded means "Ready to start/continue burst"
     if (burstEnded && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
-        bp->fireBullet(x, y + height/2, type);
+	int bulletsToFire = level;
+	if (bulletsToFire > 3) bulletsToFire = 3;
+
+	const int spread = 4;
+	int centerY = y + height/2;
+
+	for (int i = 0; i < bulletsToFire; i++) {
+	    int bulletY;
+	    if (bulletsToFire == 1) {
+		bulletY = centerY;
+	    } else {
+		bulletY = centerY - spread / 2 + (spread * i) / (bulletsToFire - 1);
+	    }
+	    bp->fireBullet(x, bulletY, type);
+	}
+
         shotTime = currTime;
         shotCount++;
         if (shotCount >= BULLET_BURST) {
