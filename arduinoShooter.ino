@@ -7,7 +7,7 @@
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Joystick jstick(JOYSTICK_REAL_Y_PIN, JOYSTICK_REAL_X_PIN, JOYSTICK_BUTTON_PIN);
-SpaceShip spaceShip(INITIAL_X, INITIAL_Y, SPACESHIP_BMP_WIDTH, SPACESHIP_BMP_HEIGHT, 10, normal, friendly, true);
+SpaceShip spaceShip(INITIAL_X, INITIAL_Y, 10, 10, 10, normal, friendly, true);
 BulletPool bulletPool;
 EnemyShipPool enemyPool;
 

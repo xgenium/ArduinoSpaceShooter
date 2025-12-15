@@ -31,14 +31,16 @@ void Game::update()
 {
     jstick->loop();
 
+    int add = enemyPool->gameUpdate(bulletPool);
+    if (add > 0) updateScore(add);
+    enemyPool->shoot(bulletPool);
 
     if (!firstLoop && jstick->getButtonState() == PRESSED_BUTTON) {
         spaceShip->shoot(bulletPool);
-	enemyPool->shoot(bulletPool);
     }
     firstLoop = false;
     if (enemyPool->getActiveEnemyCount() == 0 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
-	enemyPool->createEnemy(random(1, 10), random(1, 10), SPACESHIP_BMP_WIDTH, SPACESHIP_BMP_HEIGHT, xored);
+	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_SHIP_BMP_WIDTH, ENEMY_SHIP_BMP_HEIGHT, xored);
     }
 
     if (score < 3) {
@@ -50,8 +52,6 @@ void Game::update()
     }
 
     bulletPool->gameUpdate();
-    int add = enemyPool->gameUpdate(bulletPool);
-    if (add > 0) updateScore(add);
     spaceShip->gameUpdate(bulletPool, jstick);
     if (spaceShip->getHealth() <= 0 && !spaceShip->getDeathAnimationStatus()) {
 	delay(1000);
@@ -185,6 +185,18 @@ void SpaceShip::draw(Adafruit_SSD1306 *display)
     }
 }
 
+void SpaceShip::reset()
+{
+    x = x1 = y = y1 = 0;
+    xSpeed = ySpeed = 0;
+    isActive = false;
+    shotCount = 0;
+    shotTime = 0;
+    lastRandomMove = millis();
+    burstEnded = true;
+    deathAnimation.isHappening = false;
+}
+
 int SpaceShip::getX()
 {
     return x;
@@ -193,6 +205,16 @@ int SpaceShip::getX()
 int SpaceShip::getY()
 {
     return y;
+}
+
+int SpaceShip::getX1()
+{
+    return x1;
+}
+
+int SpaceShip::getY1()
+{
+    return y1;
 }
 
 int SpaceShip::getWidth()
@@ -220,6 +242,21 @@ int SpaceShip::getLevel()
     return level;
 }
 
+int SpaceShip::getLastRandomMove()
+{
+    return lastRandomMove;
+}
+
+int SpaceShip::getLastShotTime()
+{
+    return shotTime;
+}
+
+int SpaceShip::getShotCount()
+{
+    return shotCount;
+}
+
 bool SpaceShip::getDeathAnimationStatus()
 {
     return deathAnimation.isHappening;
@@ -228,6 +265,13 @@ bool SpaceShip::getDeathAnimationStatus()
 ShipType SpaceShip::getShipType()
 {
     return type;
+}
+
+void SpaceShip::randomMove(int maxDistanceX, int maxDistanceY)
+{
+    x1 = (int)random(1, maxDistanceX+1);
+    y1 = (int)random(1, maxDistanceY+1);
+    lastRandomMove = millis();
 }
 
 void SpaceShip::setPosition(int posX, int posY)
@@ -274,13 +318,35 @@ void SpaceShip::updateSpeed(int xJoystick, int yJoystick)
 
 void SpaceShip::updatePosition()
 {
-    x += xSpeed;
-    y += ySpeed;
-    if (y >= (SCREEN_HEIGHT - width) || y <= 0)
-        y -= ySpeed;
-    if (x >= (SCREEN_WIDTH - height) || x <= SCREEN_WIDTH/2)
-        x -= xSpeed;
+    if (type == enemy) {
+	if (x < x1) {
+	    x += xSpeed;
+	    if (x > x1) x = x1;
+	} else if (x > x1) {
+	    x -= xSpeed;
+	    if (x < x1) x = x1;
+	} else {
+	    xSpeed = 0;
+	}
 
+	if (y < y1) {
+	    y += ySpeed;
+	    if (y > y1) y = y1;
+	} else if (y > y1) {
+	    y -= ySpeed;
+	    if (y < y1) y = y1;
+	} else {
+	    ySpeed = 0;
+	}
+    } else {
+	x += xSpeed;
+	y += ySpeed;
+    }
+
+    if (x < 0) x = 0;
+    if (x > SCREEN_WIDTH - width) x = SCREEN_WIDTH - width;
+    if (y < 0) y = 0;
+    if (y > SCREEN_HEIGHT - height) y = SCREEN_HEIGHT - height;
 }
 
 void SpaceShip::setLevel(int lvl)
@@ -288,10 +354,20 @@ void SpaceShip::setLevel(int lvl)
     level = lvl;
 }
 
+void SpaceShip::setSpeed(int speedX, int speedY)
+{
+    xSpeed = speedX;
+    ySpeed = speedY;
+}
+
 void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 {
-    updateSpeed(jstick->getX(), jstick->getY());
+    if (jstick != NULL) updateSpeed(jstick->getX(), jstick->getY());
+
     updatePosition();
+
+    if (type == enemy) return;
+
     int bpSize = bp->getPoolSize();
     for (int i = 0; i < bpSize; i++) {
         Bullet *b = bp->getBulletByIndex(i);
@@ -299,9 +375,7 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 	    if (isActive && isHitByBullet(b, enemy)) {
                 bp->destroyBulletByIndex(i);
 		startDeathAnimation(250, 50);
-		deathAnimation.count = 10;
 		if (health <= 0) {
-		    deathAnimation.count = 20;
 		    isActive = false;
 		    startDeathAnimation(DEFAULT_DEATH_ANIMATION_DURATION, DEFAULT_FLICKER_DELAY);
 		}
@@ -315,9 +389,19 @@ void SpaceShip::shoot(BulletPool *bp)
     int currTime = millis();
     if (!isActive) return;
 
-    if (!burstEnded && (currTime - shotTime >= BURST_COOLDOWN)) {
-        burstEnded = true;
-        shotCount = 0;
+    switch (type) {
+	case friendly:
+	    if (currTime - shotTime >= BURST_COOLDOWN) {
+		burstEnded = true;
+		shotCount = 0;
+	    }
+	    break;
+	case enemy:
+	    if (currTime - shotTime >= random(800, 1200)) {
+		burstEnded = true;
+		shotCount = 0;
+	    }
+	    break;
     }
 
     // burstEnded means "Ready to start/continue burst"
@@ -340,9 +424,11 @@ void SpaceShip::shoot(BulletPool *bp)
 
         shotTime = currTime;
         shotCount++;
-        if (shotCount >= BULLET_BURST) {
+        if (shotCount >= BULLET_BURST && type == friendly) {
             burstEnded = false;
-        }
+	} else if (shotCount >= random(1, BULLET_BURST+1) && type == enemy) {
+            burstEnded = false;
+	}
     }
 }
 
@@ -379,11 +465,6 @@ void SpaceShip::startDeathAnimation(int duration, int flicker_delay)
     deathAnimation.flickerTime = currTime;
     deathAnimation.flicker_delay = flicker_delay;
     deathAnimation.duration = duration;
-    const uint8_t *bmpToCopy;
-    switch (bmpType) {
-        case normal: bmpToCopy = spaceShip_bmp; break;
-        case xored: bmpToCopy = mirrored_xoredShip_bmp; break;
-    }
 }
 
 void EnemyShipPool::init()
@@ -402,6 +483,9 @@ void EnemyShipPool::createEnemy(int x, int y, int width, int height, ShipBitmapT
     if (enemyShip->getIsActive()) {
         return;
     }
+
+    enemyShip->reset();
+
     activeEnemyCount++;
     enemyShip->setIsActive(true);
     enemyShip->setHealth(DEFAULT_HEALTH);
@@ -412,6 +496,14 @@ void EnemyShipPool::createEnemy(int x, int y, int width, int height, ShipBitmapT
 
 int EnemyShipPool::gameUpdate(BulletPool *bp)
 {
+    for (int i = 0; i < poolSize; i++) {
+        SpaceShip* enemy = &pool[i];
+        if (enemy->getIsActive()) {
+            enemy->gameUpdate(bp, nullptr);
+        }
+    }
+    randomMove();
+
     int bpSize = bp->getPoolSize();
     for (int i = 0; i < bpSize; i++) {
 	Bullet *b = bp->getBulletByIndex(i);
@@ -419,19 +511,37 @@ int EnemyShipPool::gameUpdate(BulletPool *bp)
 	    for (int j = 0; j < poolSize; j++) {
                 SpaceShip *enemyShip = &pool[j];
                 if (enemyShip->getIsActive() && enemyShip->isHitByBullet(b, friendly)) {
-                    bp->destroyBulletByIndex(i);
-                    if (enemyShip->getHealth() <= 0) {
+		    bp->destroyBulletByIndex(i);
+		    if (enemyShip->getHealth() <= 0) {
 			lastShotEnemyTime = millis();
 			activeEnemyCount--;
 			enemyShip->setIsActive(false);
 			enemyShip->startDeathAnimation(DEFAULT_DEATH_ANIMATION_DURATION, DEFAULT_FLICKER_DELAY);
 			return 1;
-                    }
-                }
-            }
-        }
+		    }
+		}
+	    }
+	}
     }
     return 0;
+}
+
+void EnemyShipPool::randomMove()
+{
+    for (int i = 0; i < poolSize; i++) {
+	SpaceShip *ship = &pool[i];
+	if (ship->getIsActive()) {
+	    if (millis() - ship->getLastRandomMove() >= RANDOM_MOVE_COOLDOWN) {
+		int randomSpeedX = random(1, 3);
+		int randomSpeedY = random(1, 3);
+		ship->setSpeed(randomSpeedX, randomSpeedY);
+		ship->randomMove(
+			    SCREEN_WIDTH / 3 - ship->getWidth(),
+			    SCREEN_HEIGHT - ship->getHeight()
+			);
+		}
+	}
+    }
 }
 
 void EnemyShipPool::draw(Adafruit_SSD1306 *display)
@@ -454,9 +564,12 @@ int EnemyShipPool::getLastShotEnemyTime()
 
 void EnemyShipPool::shoot(BulletPool *bp)
 {
+    int currTime = millis();
     for (int i = 0; i < poolSize; i++) {
 	SpaceShip *enemy = &pool[i];
-	if (enemy->getIsActive()) enemy->shoot(bp);
+	if (enemy->getIsActive()) {
+	    enemy->shoot(bp);
+	}
     }
 }
 

@@ -21,8 +21,11 @@
 #define BULLET_BURST 5
 #define BURST_COOLDOWN 500
 
-#define SPACESHIP_BMP_HEIGHT 16
-#define SPACESHIP_BMP_WIDTH 16
+#define ENEMY_SHIP_BMP_HEIGHT 16
+#define ENEMY_SHIP_BMP_WIDTH 16
+
+#define MAIN_SHIP_BMP_HEIGHT 10
+#define MAIN_SHIP_BMP_WIDTH 10
 
 #define GAME_OVER_PRINT_DELAY 400
 #define CHAR_WIDTH 12
@@ -36,13 +39,14 @@
 
 #define DEFAULT_HEALTH 3
 
-#define INITIAL_X ((SCREEN_WIDTH / 4) * 3 - SPACESHIP_BMP_WIDTH)
-#define INITIAL_Y ((SCREEN_HEIGHT / 4) * 3 - SPACESHIP_BMP_HEIGHT)
+#define INITIAL_X ((SCREEN_WIDTH / 4) * 3 - ENEMY_SHIP_BMP_WIDTH)
+#define INITIAL_Y ((SCREEN_HEIGHT / 4) * 3 - ENEMY_SHIP_BMP_HEIGHT)
 
-#define DEADZONE_X 15
-#define DEADZONE_Y 15
+#define DEADZONE_X 20
+#define DEADZONE_Y 20
 
 #define SHOOTING_COOLDOWN 100
+#define RANDOM_MOVE_COOLDOWN 2000
 
 #define UNPRESSED_BUTTON HIGH
 #define PRESSED_BUTTON LOW
@@ -51,7 +55,10 @@ enum ShipType { friendly, enemy };
 
 enum ShipBitmapType { normal, xored };
 
-static const unsigned char spaceShip_bmp[] PROGMEM = {0x00, 0x00, 0x00, 0x70, 0x01, 0x90, 0x02, 0x10, 0x1F, 0xF3, 0x3F, 0xFB, 0x60, 0x0F, 0x9F, 0xFF, 0x60,
+static const unsigned char spaceShip_bmp[] PROGMEM = {
+0x00, 0x00, 0x07, 0x80, 0x08, 0x40, 0x16, 0x40, 0xE9, 0xC0, 0xE9, 0xC0, 0x16, 0x40, 0x08, 0x40, 0x07, 0x80, 0x00, 0x00
+};
+static const unsigned char old_spaceShip_bmp[] PROGMEM = {0x00, 0x00, 0x00, 0x70, 0x01, 0x90, 0x02, 0x10, 0x1F, 0xF3, 0x3F, 0xFB, 0x60, 0x0F, 0x9F, 0xFF, 0x60,
  0x0F, 0x3F, 0xFB, 0x1F, 0xF3, 0x02, 0x10, 0x01, 0x90, 0x00, 0x70, 0x00, 0x00, 0x00, 0x00};
 
 static const unsigned char xoredShip_bmp[] PROGMEM = {0x1, 0x1, 0x1, 0x71, 0x0, 0x91, 0x3, 0x11, 0x1E, 0xF2, 0x3E, 0xFA, 0x61, 0xE, 0x9E, 0xFE, 0x61, 0xE, 0x3E, 0xFA,
@@ -72,7 +79,6 @@ class EnemyShipPool;
 
 struct DeathAnimation {
     bool inverted;
-    int count;
     int duration;
     int startTime;
     int flickerTime;
@@ -148,6 +154,7 @@ class SpaceShip
 {
     private:
         int x, y;
+	int x1, y1;
 	int level;
         int xSpeed, ySpeed;
         int width, height;
@@ -155,6 +162,7 @@ class SpaceShip
         int shotTime;
         int shotCount;
 	int killCount;
+	int lastRandomMove;
         bool burstEnded;
         bool isActive;
         ShipBitmapType bmpType;
@@ -165,6 +173,7 @@ class SpaceShip
         SpaceShip(int posX, int posY, int bmpWidth, int bmpHeight, int health, ShipBitmapType bmpType, ShipType type, bool isActive)
             :   x(posX),
                 y(posY),
+		x1(posX), y1(posY),
                 xSpeed(0),
                 ySpeed(0),
 		level(1),
@@ -176,19 +185,27 @@ class SpaceShip
                 isActive(isActive),
                 shotCount(0),
                 shotTime(0),
+		lastRandomMove(millis()),
                 burstEnded(true) {
 		    deathAnimation.isHappening = false;
                 };
         void draw(Adafruit_SSD1306 *display);
+	void reset();
         int getX();
         int getY();
+        int getX1();
+        int getY1();
         int getWidth();
         int getHeight();
         bool getIsActive();
         int getHealth();
 	int getLevel();
+	int getLastRandomMove();
+	int getLastShotTime();
+	int getShotCount();
 	bool getDeathAnimationStatus();
 	ShipType getShipType();
+	void randomMove(int maxDistanceX, int maxDistanceY);
         void setPosition(int posX, int posY);
         void setBmpSettings(int bmpWidth, int bmpHeight, ShipBitmapType newBmpType);
         void setIsActive(bool isActive);
@@ -196,6 +213,7 @@ class SpaceShip
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
 	void setLevel(int lvl);
+	void setSpeed(int speedX, int speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
         void shoot(BulletPool *bp);
         int getCooldown();
@@ -218,6 +236,7 @@ class EnemyShipPool
         void init();
         void createEnemy(int x, int y, int width, int height, ShipBitmapType bmpType);
         int gameUpdate(BulletPool *bp);
+	void randomMove();
         void draw(Adafruit_SSD1306 *display);
 	void shoot(BulletPool *bp);
 	int getActiveEnemyCount();
