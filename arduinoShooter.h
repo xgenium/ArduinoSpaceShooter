@@ -120,6 +120,7 @@ class Game
 	bool startScreen();
 	void update();
 	void drawGameOver();
+	void drawHUD();
 	void drawScore();
 	void draw();
 	void updateScore(int add);
@@ -165,6 +166,7 @@ class SpaceShip
 	int lastRandomMove;
         bool burstEnded;
         bool isActive;
+	bool isMoving;
         ShipBitmapType bmpType;
         ShipType type;
         DeathAnimation deathAnimation;
@@ -185,7 +187,8 @@ class SpaceShip
                 isActive(isActive),
                 shotCount(0),
                 shotTime(0),
-		lastRandomMove(millis()),
+		lastRandomMove(0),
+		isMoving(false),
                 burstEnded(true) {
 		    deathAnimation.isHappening = false;
                 };
@@ -198,6 +201,7 @@ class SpaceShip
         int getWidth();
         int getHeight();
         bool getIsActive();
+	bool getIsMoving();
         int getHealth();
 	int getLevel();
 	int getLastRandomMove();

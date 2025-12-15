@@ -34,6 +34,7 @@ void loop() {
 
     game.update();
     game.draw();
+    game.drawHUD();
 
     display.display();
 }

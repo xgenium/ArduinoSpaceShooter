@@ -43,9 +43,9 @@ void Game::update()
 	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_SHIP_BMP_WIDTH, ENEMY_SHIP_BMP_HEIGHT, xored);
     }
 
-    if (score < 3) {
+    if (score < 5) {
 	spaceShip->setLevel(1);
-    } else if (score < 5) {
+    } else if (score < 10) {
 	spaceShip->setLevel(2);
     } else {
 	spaceShip->setLevel(3);
@@ -88,6 +88,21 @@ void Game::drawGameOver()
     }
 }
 
+void Game::drawHUD()
+{
+    //display->drawRect(0, 0, 50, 10, WHITE);
+    display->fillRect(0, 0, 85, 7, WHITE);
+    display->setCursor(1, 0);
+    display->setTextColor(BLACK);
+    display->setTextSize(1);
+    display->print("LVL:");
+    display->print(spaceShip->getLevel());
+    display->print(" S:");
+    display->print(score);
+    display->print(" H:");
+    display->print(spaceShip->getHealth());
+}
+
 void Game::drawScore()
 {
     display->setCursor(0,0);
@@ -101,7 +116,7 @@ void Game::draw()
     spaceShip->draw(display);
     bulletPool->draw(display);
     enemyPool->draw(display);
-    drawScore();
+    //drawScore();
 }
 
 void Game::updateScore(int add)
@@ -232,6 +247,11 @@ bool SpaceShip::getIsActive()
     return isActive;
 }
 
+bool SpaceShip::getIsMoving()
+{
+    return isMoving;
+}
+
 int SpaceShip::getHealth()
 {
     return health;
@@ -272,6 +292,7 @@ void SpaceShip::randomMove(int maxDistanceX, int maxDistanceY)
     x1 = (int)random(1, maxDistanceX+1);
     y1 = (int)random(1, maxDistanceY+1);
     lastRandomMove = millis();
+    isMoving = true;
 }
 
 void SpaceShip::setPosition(int posX, int posY)
@@ -338,6 +359,9 @@ void SpaceShip::updatePosition()
 	} else {
 	    ySpeed = 0;
 	}
+
+	if (xSpeed == 0 && ySpeed == 0)
+	    isMoving = false;
     } else {
 	x += xSpeed;
 	y += ySpeed;
@@ -531,7 +555,7 @@ void EnemyShipPool::randomMove()
     for (int i = 0; i < poolSize; i++) {
 	SpaceShip *ship = &pool[i];
 	if (ship->getIsActive()) {
-	    if (millis() - ship->getLastRandomMove() >= RANDOM_MOVE_COOLDOWN) {
+	    if (!ship->getIsMoving() && millis() - ship->getLastRandomMove() >= RANDOM_MOVE_COOLDOWN) {
 		int randomSpeedX = random(1, 3);
 		int randomSpeedY = random(1, 3);
 		ship->setSpeed(randomSpeedX, randomSpeedY);
