@@ -93,8 +93,15 @@ struct DeathAnimation {
 struct GameOverAnimation {
     int8_t x, y;
     unsigned long readTime;
-    byte strLen;
-    byte outputCharCount;
+    uint8_t strLen;
+    uint8_t outputCharCount;
+};
+
+struct Wave {
+    uint8_t enemyCount;
+    uint8_t minEnemyLevel, maxEnemyLevel;
+    uint8_t enemyLevelDistribution; // 1 (only min levels) - 10 (only max levels)
+    int maxScore;
 };
 
 class Game
@@ -107,7 +114,7 @@ class Game
 	EnemyShipPool *enemyPool;
 
 	GameOverAnimation gameOverAnimation;
-	int score;
+	uint32_t score;
 	bool gameOver;
 	bool firstLoop;
 	bool gameStarted;
@@ -127,10 +134,10 @@ class Game
 	void drawHUD();
 	void drawScore();
 	void draw();
-	void updateScore(int add);
+	void updateScore(uint32_t add);
 	void setGameOver(bool isGameOver);
 	void setGameStarted(bool isGameStarted);
-	int getScore();
+	uint32_t getScore();
 	bool isGameOver();
 	bool isGameStarted();
 };
@@ -158,16 +165,16 @@ class Joystick
 class SpaceShip
 {
     private:
-        int x, y;
-	int x1, y1;
-	int level;
-        int xSpeed, ySpeed;
-        int width, height;
-        int health, ammo;
+        int16_t x, y;
+	int16_t x1, y1;
+	uint8_t level;
+        int8_t xSpeed, ySpeed;
+        uint8_t width, height;
+        int8_t maxHealth, health;
         unsigned long shotTime;
-        int straightShotCount;
-	int diagonalShotCount;
-	int killCount;
+        uint8_t straightShotCount;
+	uint8_t diagonalShotCount;
+	uint32_t killCount;
 	unsigned long lastRandomMove;
         bool burstEnded;
         bool isActive;
@@ -177,7 +184,7 @@ class SpaceShip
         DeathAnimation deathAnimation;
     public:
         SpaceShip() : SpaceShip(0, 0, 0, 0, DEFAULT_HEALTH, enemy_lvl1, enemy, false) {};
-        SpaceShip(int posX, int posY, int bmpWidth, int bmpHeight, int health, ShipBitmapType bmpType, ShipType type, bool isActive)
+        SpaceShip(int16_t posX, int16_t posY, uint8_t bmpWidth, uint8_t bmpHeight, int8_t health, ShipBitmapType bmpType, ShipType type, bool isActive)
             :   x(posX),
                 y(posY),
 		x1(posX), y1(posY),
@@ -186,6 +193,7 @@ class SpaceShip
 		level(1),
                 width(bmpWidth),
                 height(bmpHeight),
+                maxHealth(health),
                 health(health),
                 bmpType(bmpType),
                 type(type),
@@ -200,37 +208,38 @@ class SpaceShip
                 };
         void draw(Adafruit_SSD1306 *display);
 	void reset();
-        int getX();
-        int getY();
-        int getX1();
-        int getY1();
-        int getWidth();
-        int getHeight();
+        int16_t getX();
+        int16_t getY();
+        int16_t getX1();
+        int16_t getY1();
+        uint8_t getWidth();
+        uint8_t getHeight();
         bool getIsActive();
 	bool getIsMoving();
-        int getHealth();
-	int getLevel();
+        int8_t getHealth();
+	uint8_t getLevel();
 	unsigned long getLastRandomMove();
 	unsigned long getLastShotTime();
-	int getStraightShotCount();
-	int getDiagonalShotCount();
+	uint8_t getStraightShotCount();
+	uint8_t getDiagonalShotCount();
 	bool getDeathAnimationStatus();
 	ShipType getShipType();
-	void randomMove(int maxDistanceX, int maxDistanceY);
-        void setPosition(int posX, int posY);
-	void setTargetPosition(int posX1, int posY1);
-        void setBmpSettings(int bmpWidth, int bmpHeight, ShipBitmapType newBmpType);
+	void randomMove(int16_t maxDistanceX, int16_t maxDistanceY);
+        void setPosition(int16_t posX, int16_t posY);
+	void setTargetPosition(int16_t posX1, int16_t posY1);
+        void setBmpSettings(uint8_t bmpWidth, uint8_t bmpHeight, ShipBitmapType newBmpType);
         void setIsActive(bool isActive);
 	void setIsMoving(bool moving);
-	void setHealth(int newHealth);
+	void setHealth(int8_t newHealth);
+	void resetHealth();
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
-	void setLevel(int lvl);
-	void setSpeed(int speedX, int speedY);
+	void setLevel(uint8_t lvl);
+	void setSpeed(int8_t speedX, int8_t speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
         void shoot(BulletPool *bp);
         unsigned long getCooldown();
-	bool isPointInside(int px, int py);
+	bool isPointInside(int16_t px, int16_t py);
         bool isHitByBullet(Bullet *b, ShipType bulletType);
         void startDeathAnimation(int duration, int flicker_delay);
 };
@@ -239,28 +248,28 @@ class SpaceShip
 class EnemyShipPool
 {
     private:
-        int poolSize;
-        int nextAvailableIndex;
-	int activeEnemyCount;
+        int8_t poolSize;
+        uint8_t nextAvailableIndex;
+	int8_t activeEnemyCount;
 	unsigned long lastShotEnemyTime;
         SpaceShip pool[3];
     public:
         EnemyShipPool() : poolSize(3), nextAvailableIndex(0), activeEnemyCount(0) {};
         void init();
-        void createEnemy(int x, int y, int width, int height, ShipBitmapType bmpType);
+        void createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t height, ShipBitmapType bmpType);
         int gameUpdate(BulletPool *bp);
 	void updatePosition();
 	void randomMove();
         void draw(Adafruit_SSD1306 *display);
 	void shoot(BulletPool *bp);
-	int getActiveEnemyCount();
+	int8_t getActiveEnemyCount();
 	unsigned long getLastShotEnemyTime();
 };
 
 class Bullet
 {
     public:
-        int8_t x, y;
+        int16_t x, y;
         int8_t xSpeed, ySpeed;
         int8_t damage;
         ShipType type;
@@ -274,17 +283,17 @@ class Bullet
 class BulletPool
 {
     private:
-        int poolSize;
-        int nextAvailableIndex;
+        uint8_t poolSize;
+        uint8_t nextAvailableIndex;
         Bullet pool[BULLET_POOL_SIZE];
     public:
         BulletPool() : poolSize(BULLET_POOL_SIZE), nextAvailableIndex(0) {};
         void init();
-        void fireBullet(int x, int y, ShipType type, BulletDirection direction);
+        void fireBullet(int16_t x, int16_t y, ShipType type, BulletDirection direction);
         void gameUpdate();
-        Bullet* getBulletByIndex(int i);
-        void destroyBulletByIndex(int i);
-        int getPoolSize();
+        Bullet* getBulletByIndex(uint8_t i);
+        void destroyBulletByIndex(uint8_t i);
+        uint8_t getPoolSize();
         void draw(Adafruit_SSD1306 *display);
 };
 

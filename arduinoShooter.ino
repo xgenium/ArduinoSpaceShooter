@@ -22,7 +22,7 @@ void setup() {
     while (!game.startScreen());
     delay(200);
     game.init();
-    //Serial.print(F("free memory: ")); Serial.println(freeMemory());
+    Serial.print(F("free memory: ")); Serial.println(freeMemory());
 }
 
 void loop() {

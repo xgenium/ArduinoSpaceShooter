@@ -1,6 +1,5 @@
 #include "Adafruit_SSD1306.h"
 #include "Arduino.h"
-#include "HardwareSerial.h"
 #include <avr/pgmspace.h>
 #include "arduinoShooter.h"
 
@@ -40,9 +39,12 @@ void Game::update()
         spaceShip->shoot(bulletPool);
     }
     firstLoop = false;
-    if (enemyPool->getActiveEnemyCount() == 0 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
+    if (enemyPool->getActiveEnemyCount() <= 1 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
 	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_LVL1_WIDTH, ENEMY_LVL1_HEIGHT, enemy_lvl1);
     }
+
+    if (score >= 3 && score % 3 == 0)
+	spaceShip->resetHealth();
 
     if (score < 5) {
 	spaceShip->setLevel(1);
@@ -122,7 +124,7 @@ void Game::draw()
     //drawScore();
 }
 
-void Game::updateScore(int add)
+void Game::updateScore(uint32_t add)
 {
     score += add;
 }
@@ -137,7 +139,7 @@ void Game::setGameStarted(bool isGameStarted)
     gameStarted = isGameStarted;
 }
 
-int Game::getScore()
+uint32_t Game::getScore()
 {
     return score;
 }
@@ -217,32 +219,32 @@ void SpaceShip::reset()
     deathAnimation.isHappening = false;
 }
 
-int SpaceShip::getX()
+int16_t SpaceShip::getX()
 {
     return x;
 }
 
-int SpaceShip::getY()
+int16_t SpaceShip::getY()
 {
     return y;
 }
 
-int SpaceShip::getX1()
+int16_t SpaceShip::getX1()
 {
     return x1;
 }
 
-int SpaceShip::getY1()
+int16_t SpaceShip::getY1()
 {
     return y1;
 }
 
-int SpaceShip::getWidth()
+uint8_t SpaceShip::getWidth()
 {
     return width;
 }
 
-int SpaceShip::getHeight()
+uint8_t SpaceShip::getHeight()
 {
     return height;
 }
@@ -257,12 +259,12 @@ bool SpaceShip::getIsMoving()
     return isMoving;
 }
 
-int SpaceShip::getHealth()
+int8_t SpaceShip::getHealth()
 {
     return health;
 }
 
-int SpaceShip::getLevel()
+uint8_t SpaceShip::getLevel()
 {
     return level;
 }
@@ -277,12 +279,12 @@ unsigned long SpaceShip::getLastShotTime()
     return shotTime;
 }
 
-int SpaceShip::getStraightShotCount()
+uint8_t SpaceShip::getStraightShotCount()
 {
     return straightShotCount;
 }
 
-int SpaceShip::getDiagonalShotCount()
+uint8_t SpaceShip::getDiagonalShotCount()
 {
     return diagonalShotCount;
 }
@@ -319,7 +321,7 @@ void SpaceShip::setTargetPosition(int posX1, int posY1)
     y1 = posY1;
 }
 
-void SpaceShip::setBmpSettings(int bmpWidth, int bmpHeight, ShipBitmapType newBmpType)
+void SpaceShip::setBmpSettings(uint8_t bmpWidth, uint8_t bmpHeight, ShipBitmapType newBmpType)
 {
     width = bmpWidth;
     height = bmpHeight;
@@ -336,9 +338,14 @@ void SpaceShip::setIsMoving(bool moving)
     isMoving = moving;
 }
 
-void SpaceShip::setHealth(int newHealth)
+void SpaceShip::setHealth(int8_t newHealth)
 {
     health = newHealth;
+}
+
+void SpaceShip::resetHealth()
+{
+    health = maxHealth;
 }
 
 void SpaceShip::updateSpeed(int xJoystick, int yJoystick)
@@ -396,12 +403,12 @@ void SpaceShip::updatePosition()
     if (y > SCREEN_HEIGHT - height) y = SCREEN_HEIGHT - height;
 }
 
-void SpaceShip::setLevel(int lvl)
+void SpaceShip::setLevel(uint8_t lvl)
 {
     level = lvl;
 }
 
-void SpaceShip::setSpeed(int speedX, int speedY)
+void SpaceShip::setSpeed(int8_t speedX, int8_t speedY)
 {
     xSpeed = speedX;
     ySpeed = speedY;
@@ -506,7 +513,7 @@ unsigned long SpaceShip::getCooldown()
     return (millis() - shotTime);
 }
 
-bool SpaceShip::isPointInside(int px, int py)
+bool SpaceShip::isPointInside(int16_t px, int16_t py)
 {
   return (
         px >= x &&
@@ -545,7 +552,7 @@ void EnemyShipPool::init()
     }
 }
 
-void EnemyShipPool::createEnemy(int x, int y, int width, int height, ShipBitmapType bmpType)
+void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t height, ShipBitmapType bmpType)
 {
     int originalNextIndex = nextAvailableIndex;
     int i = originalNextIndex;
@@ -576,11 +583,11 @@ int EnemyShipPool::gameUpdate(BulletPool *bp)
     randomMove();
     updatePosition();
 
-    int bpSize = bp->getPoolSize();
-    for (int i = 0; i < bpSize; i++) {
+    int8_t bpSize = bp->getPoolSize();
+    for (int8_t i = 0; i < bpSize; i++) {
 	Bullet *b = bp->getBulletByIndex(i);
 	if (b->isActive) {
-	    for (int j = 0; j < poolSize; j++) {
+	    for (int8_t j = 0; j < poolSize; j++) {
                 SpaceShip *enemyShip = &pool[j];
                 if (enemyShip->getIsActive() && enemyShip->isHitByBullet(b, friendly)) {
 		    bp->destroyBulletByIndex(i);
@@ -630,7 +637,7 @@ void EnemyShipPool::draw(Adafruit_SSD1306 *display)
     }
 }
 
-int EnemyShipPool::getActiveEnemyCount()
+int8_t EnemyShipPool::getActiveEnemyCount()
 {
     return activeEnemyCount;
 }
@@ -722,17 +729,17 @@ void BulletPool::gameUpdate()
     }
 }
 
-Bullet* BulletPool::getBulletByIndex(int i)
+Bullet* BulletPool::getBulletByIndex(uint8_t i)
 {
     return &pool[i];
 }
 
-void BulletPool::destroyBulletByIndex(int i)
+void BulletPool::destroyBulletByIndex(uint8_t i)
 {
     pool[i].isActive = false;
 }
 
-int BulletPool::getPoolSize()
+uint8_t BulletPool::getPoolSize()
 {
     return poolSize;
 }
