@@ -80,15 +80,15 @@ class EnemyShipPool;
 struct DeathAnimation {
     bool inverted;
     int duration;
-    int startTime;
-    int flickerTime;
+    unsigned long startTime;
+    unsigned long flickerTime;
     int flicker_delay;
     bool isHappening;
 };
 
 struct GameOverAnimation {
     int8_t x, y;
-    int readTime;
+    unsigned long readTime;
     byte strLen;
     byte outputCharCount;
 };
@@ -160,10 +160,10 @@ class SpaceShip
         int xSpeed, ySpeed;
         int width, height;
         int health, ammo;
-        int shotTime;
+        unsigned long shotTime;
         int shotCount;
 	int killCount;
-	int lastRandomMove;
+	unsigned long lastRandomMove;
         bool burstEnded;
         bool isActive;
 	bool isMoving;
@@ -186,8 +186,8 @@ class SpaceShip
                 type(type),
                 isActive(isActive),
                 shotCount(0),
-                shotTime(0),
-		lastRandomMove(0),
+                shotTime(millis()),
+		lastRandomMove(millis()),
 		isMoving(false),
                 burstEnded(true) {
 		    deathAnimation.isHappening = false;
@@ -204,15 +204,17 @@ class SpaceShip
 	bool getIsMoving();
         int getHealth();
 	int getLevel();
-	int getLastRandomMove();
-	int getLastShotTime();
+	unsigned long getLastRandomMove();
+	unsigned long getLastShotTime();
 	int getShotCount();
 	bool getDeathAnimationStatus();
 	ShipType getShipType();
 	void randomMove(int maxDistanceX, int maxDistanceY);
         void setPosition(int posX, int posY);
+	void setTargetPosition(int posX1, int posY1);
         void setBmpSettings(int bmpWidth, int bmpHeight, ShipBitmapType newBmpType);
         void setIsActive(bool isActive);
+	void setIsMoving(bool moving);
 	void setHealth(int newHealth);
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
@@ -220,7 +222,7 @@ class SpaceShip
 	void setSpeed(int speedX, int speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
         void shoot(BulletPool *bp);
-        int getCooldown();
+        unsigned long getCooldown();
 	bool isPointInside(int px, int py);
         bool isHitByBullet(Bullet *b, ShipType bulletType);
         void startDeathAnimation(int duration, int flicker_delay);
@@ -233,18 +235,19 @@ class EnemyShipPool
         int poolSize;
         int nextAvailableIndex;
 	int activeEnemyCount;
-	int lastShotEnemyTime;
+	unsigned long lastShotEnemyTime;
         SpaceShip pool[3];
     public:
         EnemyShipPool() : poolSize(3), nextAvailableIndex(0), activeEnemyCount(0) {};
         void init();
         void createEnemy(int x, int y, int width, int height, ShipBitmapType bmpType);
         int gameUpdate(BulletPool *bp);
+	void updatePosition();
 	void randomMove();
         void draw(Adafruit_SSD1306 *display);
 	void shoot(BulletPool *bp);
 	int getActiveEnemyCount();
-	int getLastShotEnemyTime();
+	unsigned long getLastShotEnemyTime();
 };
 
 class Bullet
