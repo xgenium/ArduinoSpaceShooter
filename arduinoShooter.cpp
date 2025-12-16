@@ -1,5 +1,6 @@
 #include "Adafruit_SSD1306.h"
 #include "Arduino.h"
+#include "HardwareSerial.h"
 #include <avr/pgmspace.h>
 #include "arduinoShooter.h"
 
@@ -40,15 +41,17 @@ void Game::update()
     }
     firstLoop = false;
     if (enemyPool->getActiveEnemyCount() == 0 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
-	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_SHIP_BMP_WIDTH, ENEMY_SHIP_BMP_HEIGHT, xored);
+	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_LVL1_WIDTH, ENEMY_LVL1_HEIGHT, enemy_lvl1);
     }
 
     if (score < 5) {
 	spaceShip->setLevel(1);
     } else if (score < 10) {
 	spaceShip->setLevel(2);
-    } else {
+    } else if (score < 15){
 	spaceShip->setLevel(3);
+    } else {
+	spaceShip->setLevel(5);
     }
 
     bulletPool->gameUpdate();
@@ -173,8 +176,8 @@ void SpaceShip::draw(Adafruit_SSD1306 *display)
 {
     const uint8_t *bmp;
     switch (bmpType) {
-        case normal: bmp = spaceShip_bmp; break;
-        case xored: bmp = mirrored_xoredShip_bmp; break;
+        case normal_lvl1: bmp = normal_lvl1_bmp; break;
+        case enemy_lvl1: bmp = enemy_lvl1_bmp; break;
     }
     if (isActive && !deathAnimation.isHappening) {
         display->drawBitmap(x, y, bmp, width, height, 1);
@@ -202,12 +205,14 @@ void SpaceShip::draw(Adafruit_SSD1306 *display)
 
 void SpaceShip::reset()
 {
+    unsigned long currTime = millis();
     x = x1 = y = y1 = 0;
     xSpeed = ySpeed = 0;
     isActive = false;
-    shotCount = 0;
-    shotTime = 0;
-    lastRandomMove = millis();
+    straightShotCount = 0;
+    diagonalShotCount = 0;
+    shotTime = currTime;
+    lastRandomMove = currTime;
     burstEnded = true;
     deathAnimation.isHappening = false;
 }
@@ -272,9 +277,14 @@ unsigned long SpaceShip::getLastShotTime()
     return shotTime;
 }
 
-int SpaceShip::getShotCount()
+int SpaceShip::getStraightShotCount()
 {
-    return shotCount;
+    return straightShotCount;
+}
+
+int SpaceShip::getDiagonalShotCount()
+{
+    return diagonalShotCount;
 }
 
 bool SpaceShip::getDeathAnimationStatus()
@@ -430,13 +440,15 @@ void SpaceShip::shoot(BulletPool *bp)
 	case friendly:
 	    if (currTime - shotTime >= BURST_COOLDOWN) {
 		burstEnded = true;
-		shotCount = 0;
+		straightShotCount = 0;
+		diagonalShotCount = 0;
 	    }
 	    break;
 	case enemy:
 	    if (currTime - shotTime >= random(800, 1200)) {
 		burstEnded = true;
-		shotCount = 0;
+		straightShotCount = 0;
+		diagonalShotCount = 0;
 	    }
 	    break;
     }
@@ -444,26 +456,46 @@ void SpaceShip::shoot(BulletPool *bp)
     // burstEnded means "Ready to start/continue burst"
     if (burstEnded && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
 	int bulletsToFire = level;
-	if (bulletsToFire > 3) bulletsToFire = 3;
+	int straightBullets;
+	int diagonalBullets = bulletsToFire - MAX_STRAIGHT_BULLETS;
+
+	if (bulletsToFire > MAX_STRAIGHT_BULLETS)
+	    straightBullets = MAX_STRAIGHT_BULLETS;
+	else
+	    straightBullets = bulletsToFire;
+
+	if (diagonalBullets < 0 || diagonalShotCount >= DIAGONAL_BURST
+		||  diagonalBullets % 2 != 0) {
+	    diagonalBullets = 0;
+	}
 
 	const int spread = 4;
 	int centerY = y + height/2;
+	BulletDirection direction;
+	int i;
 
-	for (int i = 0; i < bulletsToFire; i++) {
+	for (i = 0; i < straightBullets; i++) {
+	    direction = straight;
 	    int bulletY;
-	    if (bulletsToFire == 1) {
+	    if (straightBullets == 1) {
 		bulletY = centerY;
 	    } else {
-		bulletY = centerY - spread / 2 + (spread * i) / (bulletsToFire - 1);
+		bulletY = centerY - spread / 2 + (spread * i) / (straightBullets - 1);
 	    }
-	    bp->fireBullet(x, bulletY, type);
+	    bp->fireBullet(x, bulletY, type, direction);
+	}
+
+	for (i = 0; i < diagonalBullets; i++) {
+	    direction = (i%2==0) ? diagonalUp : diagonalDown;
+	    bp->fireBullet(x, centerY, type, direction);
 	}
 
         shotTime = currTime;
-        shotCount++;
-        if (shotCount >= BULLET_BURST && type == friendly) {
+	straightShotCount++;
+	diagonalShotCount += (diagonalBullets > 0) ? 1 : 0;
+        if (straightShotCount >= BULLET_BURST && type == friendly) {
             burstEnded = false;
-	} else if (shotCount >= random(1, BULLET_BURST+1) && type == enemy) {
+	} else if (straightShotCount >= random(1, BULLET_BURST+1) && type == enemy) {
             burstEnded = false;
 	}
     }
@@ -621,7 +653,15 @@ void EnemyShipPool::shoot(BulletPool *bp)
 
 void Bullet::draw(Adafruit_SSD1306 *display)
 {
-    display->drawFastHLine(x, y, BULLET_WIDTH, 1);
+    //display->drawFastHLine(x, y, BULLET_WIDTH, 1);
+    int y1;
+    if (ySpeed < 0)
+	y1 = (type == friendly) ? y+BULLET_HEIGHT : y-BULLET_HEIGHT;
+    else if (ySpeed > 0)
+	y1 = (type == friendly) ? y-BULLET_HEIGHT : y+BULLET_HEIGHT;
+    else
+	y1 = y;
+    display->drawLine(x, y, x+BULLET_WIDTH, y1, WHITE);
 }
 
 void Bullet::updatePosition()
@@ -630,6 +670,9 @@ void Bullet::updatePosition()
         case friendly: x -= xSpeed; break;
         case enemy: x += xSpeed; break;
     }
+    y += ySpeed;
+    if (y >= SCREEN_HEIGHT || y <= 0)
+	ySpeed = -ySpeed;
 }
 
 void BulletPool::init()
@@ -642,7 +685,7 @@ void BulletPool::init()
     }
 }
 
-void BulletPool::fireBullet(int x, int y, ShipType type)
+void BulletPool::fireBullet(int x, int y, ShipType type, BulletDirection direction)
 {
     int originalNextIndex = nextAvailableIndex;
     int i = originalNextIndex;
@@ -653,6 +696,11 @@ void BulletPool::fireBullet(int x, int y, ShipType type)
             b->x = x;
             b->y = y;
             b->xSpeed = 3;
+	    switch (direction) {
+		case straight: b->ySpeed = 0; break;
+		case diagonalUp: b->ySpeed = -1; break;
+		case diagonalDown: b->ySpeed = 1; break;
+	    }
             b->type = type;
             nextAvailableIndex = (i + 1) % poolSize;
             return;

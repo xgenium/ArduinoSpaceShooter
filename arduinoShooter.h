@@ -17,15 +17,19 @@
 #define JOYSTICK_BUTTON_PIN 3
 
 #define BULLET_WIDTH 3
+#define BULLET_HEIGHT 2 // if ySpeed == 2, then change HEIGHT to 3
+
 #define BULLET_POOL_SIZE 20
 #define BULLET_BURST 5
+#define DIAGONAL_BURST 3
 #define BURST_COOLDOWN 500
+#define MAX_STRAIGHT_BULLETS 3
 
-#define ENEMY_SHIP_BMP_HEIGHT 16
-#define ENEMY_SHIP_BMP_WIDTH 16
+#define ENEMY_LVL1_WIDTH 10
+#define ENEMY_LVL1_HEIGHT 10
 
-#define MAIN_SHIP_BMP_HEIGHT 10
-#define MAIN_SHIP_BMP_WIDTH 10
+#define NORMAL_LVL1_WIDTH 10
+#define NORMAL_LVL1_HEIGHT 10
 
 #define GAME_OVER_PRINT_DELAY 400
 #define CHAR_WIDTH 12
@@ -39,8 +43,8 @@
 
 #define DEFAULT_HEALTH 3
 
-#define INITIAL_X ((SCREEN_WIDTH / 4) * 3 - ENEMY_SHIP_BMP_WIDTH)
-#define INITIAL_Y ((SCREEN_HEIGHT / 4) * 3 - ENEMY_SHIP_BMP_HEIGHT)
+#define INITIAL_X ((SCREEN_WIDTH / 4) * 3 - NORMAL_LVL1_WIDTH)
+#define INITIAL_Y ((SCREEN_HEIGHT / 4) * 3 - NORMAL_LVL1_HEIGHT)
 
 #define DEADZONE_X 20
 #define DEADZONE_Y 20
@@ -53,20 +57,20 @@
 
 enum ShipType { friendly, enemy };
 
-enum ShipBitmapType { normal, xored };
+enum ShipBitmapType { normal_lvl1, enemy_lvl1 };
 
-static const unsigned char spaceShip_bmp[] PROGMEM = {
+enum BulletDirection { straight, diagonalUp, diagonalDown };
+
+static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 0x00, 0x00, 0x07, 0x80, 0x08, 0x40, 0x16, 0x40, 0xE9, 0xC0, 0xE9, 0xC0, 0x16, 0x40, 0x08, 0x40, 0x07, 0x80, 0x00, 0x00
 };
-static const unsigned char old_spaceShip_bmp[] PROGMEM = {0x00, 0x00, 0x00, 0x70, 0x01, 0x90, 0x02, 0x10, 0x1F, 0xF3, 0x3F, 0xFB, 0x60, 0x0F, 0x9F, 0xFF, 0x60,
- 0x0F, 0x3F, 0xFB, 0x1F, 0xF3, 0x02, 0x10, 0x01, 0x90, 0x00, 0x70, 0x00, 0x00, 0x00, 0x00};
 
-static const unsigned char xoredShip_bmp[] PROGMEM = {0x1, 0x1, 0x1, 0x71, 0x0, 0x91, 0x3, 0x11, 0x1E, 0xF2, 0x3E, 0xFA, 0x61, 0xE, 0x9E, 0xFE, 0x61, 0xE, 0x3E, 0xFA,
-  0x1E, 0xF2, 0x3, 0x11, 0x0, 0x91, 0x1, 0x71, 0x1, 0x1, 0x1, 0x1};
-
-// Read as horizontal; flip ver; draw horizontal
-static const unsigned char mirrored_xoredShip_bmp[] PROGMEM = {0x10, 0x10, 0x10, 0x10, 0x10, 0x71, 0x00, 0x91, 0x30, 0x11, 0x1e, 0xf2, 0x3e, 0xfa, 0x61, 0xe0, 
-0x9e, 0xfe, 0x61, 0xe0, 0x3e, 0xfa, 0x1e, 0xf2, 0x30, 0x11, 0x00, 0x91, 0x10, 0x71, 0x10, 0x10};
+// enemy ships need to be mirrored
+// image2cpp settings: read as horizontal, flip horizontally, output horizontal
+static const unsigned char enemy_lvl1_bmp[] PROGMEM = {
+0x70, 0x00, 0x8c, 0x00, 0xf3, 0x00, 0x8c, 0x80, 0xf3, 0x40, 0xf3, 0x40, 0x8c, 0x80, 0xf3, 0x00, 
+0x8c, 0x00, 0x70, 0x00
+};
 
 static const char gameOver_message[] PROGMEM = "GAME OVER";
 
@@ -161,7 +165,8 @@ class SpaceShip
         int width, height;
         int health, ammo;
         unsigned long shotTime;
-        int shotCount;
+        int straightShotCount;
+	int diagonalShotCount;
 	int killCount;
 	unsigned long lastRandomMove;
         bool burstEnded;
@@ -171,7 +176,7 @@ class SpaceShip
         ShipType type;
         DeathAnimation deathAnimation;
     public:
-        SpaceShip() : SpaceShip(0, 0, 0, 0, DEFAULT_HEALTH, xored, enemy, false) {};
+        SpaceShip() : SpaceShip(0, 0, 0, 0, DEFAULT_HEALTH, enemy_lvl1, enemy, false) {};
         SpaceShip(int posX, int posY, int bmpWidth, int bmpHeight, int health, ShipBitmapType bmpType, ShipType type, bool isActive)
             :   x(posX),
                 y(posY),
@@ -185,7 +190,8 @@ class SpaceShip
                 bmpType(bmpType),
                 type(type),
                 isActive(isActive),
-                shotCount(0),
+                straightShotCount(0),
+                diagonalShotCount(0),
                 shotTime(millis()),
 		lastRandomMove(millis()),
 		isMoving(false),
@@ -206,7 +212,8 @@ class SpaceShip
 	int getLevel();
 	unsigned long getLastRandomMove();
 	unsigned long getLastShotTime();
-	int getShotCount();
+	int getStraightShotCount();
+	int getDiagonalShotCount();
 	bool getDeathAnimationStatus();
 	ShipType getShipType();
 	void randomMove(int maxDistanceX, int maxDistanceY);
@@ -254,7 +261,7 @@ class Bullet
 {
     public:
         int8_t x, y;
-        int8_t xSpeed;
+        int8_t xSpeed, ySpeed;
         int8_t damage;
         ShipType type;
         bool isActive;
@@ -273,7 +280,7 @@ class BulletPool
     public:
         BulletPool() : poolSize(BULLET_POOL_SIZE), nextAvailableIndex(0) {};
         void init();
-        void fireBullet(int x, int y, ShipType type);
+        void fireBullet(int x, int y, ShipType type, BulletDirection direction);
         void gameUpdate();
         Bullet* getBulletByIndex(int i);
         void destroyBulletByIndex(int i);
