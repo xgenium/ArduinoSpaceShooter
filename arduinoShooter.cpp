@@ -7,6 +7,8 @@ void Game::init()
 {
     bulletPool->init();
     enemyPool->init();
+    bonus = new Bonus();
+    bonus->deactivate();
 }
 
 bool Game::startScreen()
@@ -36,12 +38,31 @@ void Game::update()
     enemyPool->shoot(bulletPool);
 
     if (!firstLoop && jstick->getButtonState() == PRESSED_BUTTON) {
-        spaceShip->shoot(bulletPool, NULL);
+        spaceShip->shoot(bulletPool);
     }
     firstLoop = false;
+
     if (enemyPool->getActiveEnemyCount() <= 1 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
-	enemyPool->createEnemy(random(1, 10), random(1, 10), ENEMY_LVL1_WIDTH, ENEMY_LVL1_HEIGHT, enemy_lvl1);
+	int randomX = random(0, SCREEN_WIDTH/2 - ENEMY_LVL1_WIDTH);
+	int randomY = random(0, SCREEN_HEIGHT - ENEMY_LVL1_HEIGHT);
+	enemyPool->createEnemy(randomX, randomY, ENEMY_LVL1_WIDTH, ENEMY_LVL1_HEIGHT, enemy_lvl1);
     }
+
+    // BONUS HANDLING
+    if (bonus->shouldCreateBonus()) {
+	int16_t x = -BONUS_ICON_SIZE;
+	int16_t y = random(HUD_HEIGHT, SCREEN_HEIGHT-BONUS_ICON_SIZE);
+	BonusType type = generateRandomBonus();
+	bonus->set(x, y, type);
+    }
+
+    if (bonus->getIsActive() && spaceShip->isPointInside(bonus->getX(), bonus->getY())) {
+	spaceShip->handleBonus(bonus->getType());
+	bonus->deactivate();
+	bonus->startCooldown();
+    }
+
+    bonus->updatePosition();
 
     if (score >= 3 && score % 3 == 0)
 	spaceShip->resetHealth();
@@ -96,7 +117,7 @@ void Game::drawGameOver()
 void Game::drawHUD()
 {
     //display->drawRect(0, 0, 50, 10, WHITE);
-    display->fillRect(0, 0, 90, 7, WHITE);
+    display->fillRect(0, 0, HUD_WIDTH, HUD_HEIGHT, WHITE);
     display->setCursor(1, 0);
     display->setTextColor(BLACK);
     display->setTextSize(1);
@@ -121,6 +142,7 @@ void Game::draw()
     spaceShip->draw(display);
     bulletPool->draw(display);
     enemyPool->draw(display);
+    bonus->draw(display);
     //drawScore();
 }
 
@@ -214,7 +236,7 @@ void SpaceShip::reset()
     straightShotCount = 0;
     diagonalShotCount = 0;
     shotTime = currTime;
-    lastRandomMove = currTime;
+    lastRandomMoveTime = currTime;
     burstEnded = true;
     deathAnimation.isHappening = false;
 }
@@ -259,6 +281,11 @@ bool SpaceShip::getIsMoving()
     return isMoving;
 }
 
+bool SpaceShip::getIsBonusActive()
+{
+    return isBonusActive;
+}
+
 int8_t SpaceShip::getHealth()
 {
     return health;
@@ -271,12 +298,17 @@ uint8_t SpaceShip::getLevel()
 
 unsigned long SpaceShip::getLastRandomMove()
 {
-    return lastRandomMove;
+    return lastRandomMoveTime;
 }
 
 unsigned long SpaceShip::getLastShotTime()
 {
     return shotTime;
+}
+
+unsigned long SpaceShip::getBonusStartTime()
+{
+    return bonusStartTime;
 }
 
 uint8_t SpaceShip::getStraightShotCount()
@@ -305,7 +337,7 @@ void SpaceShip::randomMove(int maxDistanceX, int maxDistanceY)
     ySpeed = random(1, 3);
     x1 = (int)random(1, maxDistanceX+1);
     y1 = (int)random(1, maxDistanceY+1);
-    lastRandomMove = millis();
+    lastRandomMoveTime = millis();
     isMoving = true;
 }
 
@@ -341,6 +373,12 @@ void SpaceShip::setIsMoving(bool moving)
 void SpaceShip::setHealth(int8_t newHealth)
 {
     health = newHealth;
+}
+
+void SpaceShip::setBulletsToShoot(uint8_t straightBullets, uint8_t diagonalBullets)
+{
+    bulletsToShoot.straightBullets = straightBullets;
+    bulletsToShoot.diagonalBullets = diagonalBullets;
 }
 
 void SpaceShip::resetHealth()
@@ -438,10 +476,11 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
     }
 }
 
-void SpaceShip::shoot(BulletPool *bp, BulletsToShoot *bts)
+void SpaceShip::shoot(BulletPool *bp)
 {
-    unsigned long currTime = millis();
     if (!isActive) return;
+
+    unsigned long currTime = millis();
 
     switch (type) {
 	case friendly:
@@ -464,60 +503,70 @@ void SpaceShip::shoot(BulletPool *bp, BulletsToShoot *bts)
     if (burstEnded && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
 	int straightBullets;
 	int diagonalBullets;
-	if (bts != NULL) {
-	    straightBullets = bts->straightBullets;
-	    diagonalBullets = bts->diagonalBullets;
-	} else {
-	    int bulletsToFire = level;
-	    diagonalBullets =  bulletsToFire - MAX_STRAIGHT_BULLETS;
 
-	    if (bulletsToFire > MAX_STRAIGHT_BULLETS)
-		straightBullets = MAX_STRAIGHT_BULLETS;
-	    else
-		straightBullets = bulletsToFire;
+	straightBullets = bulletsToShoot.straightBullets;
+	diagonalBullets = bulletsToShoot.diagonalBullets;
 
-	    if (diagonalBullets < 0 || diagonalShotCount >= DIAGONAL_BURST) {
-		diagonalBullets = 0;
-	    }
-	}
-	const int spread = 4;
-	int centerY = y + height/2;
-	int i;
+	// Old logic by level:
+	// int bulletsToFire = level;
+	// diagonalBullets =  bulletsToFire - MAX_STRAIGHT_BULLETS;
 
-	for (i = 0; i < straightBullets; i++) {
-	    int bulletY;
-	    if (straightBullets == 1) {
-		bulletY = centerY;
-	    } else {
-		bulletY = centerY - spread / 2 + (spread * i) / (straightBullets - 1);
-	    }
-	    bp->fireBullet(x, bulletY, type, straight);
-	}
+	// if (bulletsToFire > MAX_STRAIGHT_BULLETS)
+	//     straightBullets = MAX_STRAIGHT_BULLETS;
+	// else
+	//     straightBullets = bulletsToFire;
 
-	for (i = 0; i < diagonalBullets; i++) {
-	    int offsetY;
-	    if (diagonalBullets == 1) {
-		offsetY = 0;
-	    } else {
-		int spreadFactor = (i*10) / (diagonalBullets-1);
-		int shift = (spreadFactor - 5) * spread;
-		offsetY = shift/10;
-	    }
+	// if (diagonalBullets < 0 || diagonalShotCount >= DIAGONAL_BURST) {
+	//     diagonalBullets = 0;
+	//     }
+	// }
 
-	    bp->fireBullet(x, centerY - offsetY, type, diagonalUp); // dont use usual x and y
-
-	    bp->fireBullet(x, centerY + offsetY, type, diagonalDown); // dont use usual x and y
-	}
+	if (straightBullets > 0)
+	    shootStraight(bp, straightBullets);
+	if (diagonalBullets > 0 && diagonalShotCount <= DIAGONAL_BURST)
+	    shootDiagonally(bp, diagonalBullets);
 
         shotTime = currTime;
-	straightShotCount++;
-	diagonalShotCount += (diagonalBullets > 0) ? 1 : 0;
         if (straightShotCount >= BULLET_BURST && type == friendly) {
             burstEnded = false;
 	} else if (straightShotCount >= random(1, BULLET_BURST+1) && type == enemy) {
             burstEnded = false;
 	}
     }
+}
+
+void SpaceShip::shootStraight(BulletPool *bp, int straightBullets)
+{
+    int centerY = y + height/2;
+    for (int i = 0; i < straightBullets; i++) {
+	int bulletY;
+	if (straightBullets == 1) {
+	    bulletY = centerY;
+	} else {
+	    bulletY = centerY - BULLET_SPREAD / 2 + (BULLET_SPREAD * i) / (straightBullets - 1);
+	}
+	bp->fireBullet(x, bulletY, type, straight);
+    }
+    straightShotCount++;
+}
+
+void SpaceShip::shootDiagonally(BulletPool *bp, int diagonalBullets)
+{
+    for (int i = 0; i < diagonalBullets; i++) {
+	int offsetY;
+	if (diagonalBullets == 1) {
+	    offsetY = 0;
+	} else {
+	    int spreadFactor = (i*10) / (diagonalBullets-1);
+	    int shift = (spreadFactor - 5) * BULLET_SPREAD;
+	    offsetY = shift/10;
+	}
+
+	int centerY = y + height/2;
+	bp->fireBullet(x, centerY - offsetY, type, diagonalUp); // dont use usual x and y
+	bp->fireBullet(x, centerY + offsetY, type, diagonalDown);
+    }
+    diagonalShotCount += (diagonalBullets > 0) ? 1 : 0;
 }
 
 unsigned long SpaceShip::getCooldown()
@@ -555,6 +604,64 @@ void SpaceShip::startDeathAnimation(int duration, int flicker_delay)
     deathAnimation.duration = duration;
 }
 
+void SpaceShip::handleBonus(BonusType bonus)
+{
+    unsigned long currTime = millis();
+    if (activeBonus == b_none && bonus == b_none) return;
+    if (!isBonusActive) {
+	activateBonus(bonus);
+    } else {
+	if (currTime - bonusStartTime >= getBonusDuration(activeBonus)) {
+	    resetBonus(activeBonus);
+	}
+    }
+}
+
+void SpaceShip::activateBonus(BonusType bonus)
+{
+    isBonusActive = true;
+    bonusStartTime = millis();
+    activeBonus = bonus;
+    switch (bonus) {
+	case b_resetHealth:
+	    health = maxHealth;
+	    isBonusActive = false;
+	    activeBonus = b_none;
+	    break;
+	case b_diagonalBullets:
+	    bulletsToShoot.diagonalBullets = bulletsToShoot.straightBullets;
+	    break;
+	case b_doubleBullets:
+	    bulletsToShoot.diagonalBullets *= 2;
+	    bulletsToShoot.straightBullets *= 2;
+	    break;
+	case b_tripleBullets:
+	    bulletsToShoot.diagonalBullets *= 3;
+	    bulletsToShoot.straightBullets *= 3;
+	    break;
+    }
+}
+
+void SpaceShip::resetBonus(BonusType bonus)
+{
+    isBonusActive = false;
+    activeBonus = b_none;
+    switch (bonus) {
+	case b_diagonalBullets:
+	    bulletsToShoot.diagonalBullets = 0;
+	    break;
+	case b_doubleBullets:
+	    bulletsToShoot.straightBullets /= 2;
+	    bulletsToShoot.diagonalBullets /= 2;
+	    break;
+	case b_tripleBullets:
+	    bulletsToShoot.straightBullets /= 3;
+	    bulletsToShoot.diagonalBullets /= 3;
+	    break;
+    }
+}
+
+
 void EnemyShipPool::init()
 {
     for (int i = 0; i < poolSize; i++) {
@@ -576,6 +683,7 @@ void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t hei
 
 	    enemyShip->setIsActive(true);
 	    enemyShip->setHealth(DEFAULT_HEALTH);
+	    enemyShip->setBulletsToShoot(1, 0);
 	    enemyShip->setPosition(x, y);
 	    enemyShip->randomMove(
 			    SCREEN_WIDTH / 3 - enemyShip->getWidth(),
@@ -665,7 +773,7 @@ void EnemyShipPool::shoot(BulletPool *bp)
     for (int i = 0; i < poolSize; i++) {
 	SpaceShip *enemy = &pool[i];
 	if (enemy->getIsActive()) {
-	    enemy->shoot(bp, NULL);
+	    enemy->shoot(bp);
 	}
     }
 }
@@ -765,6 +873,79 @@ void BulletPool::draw(Adafruit_SSD1306 *display)
     }
 }
 
+void Bonus::set(int16_t posX, int16_t posY, BonusType bonusType)
+{
+    x = posX;
+    y = posY;
+    type = bonusType;
+    isActive = true;
+}
+
+void Bonus::deactivate()
+{
+    isActive = false;
+    x = y = -BONUS_ICON_SIZE;
+    type = b_none;
+}
+
+void Bonus::startCooldown()
+{
+    lastBonusTime = millis();
+    cooldown = random(5000, 10000);
+}
+
+bool Bonus::cooldownExpired()
+{
+    return (millis() - lastBonusTime) >= cooldown;
+}
+
+void Bonus::resetTimer()
+{
+    lastBonusTime = millis();
+}
+
+bool Bonus::shouldCreateBonus()
+{
+    if (!isActive && cooldownExpired())
+	return true;
+    else
+	return false;
+}
+
+void Bonus::updatePosition()
+{
+    if (isActive) {
+	x++;
+	if (x >= SCREEN_WIDTH) isActive = false;
+    }
+}
+
+bool Bonus::getIsActive()
+{
+    return isActive;
+}
+
+int16_t Bonus::getX()
+{
+    return x;
+}
+
+int16_t Bonus::getY()
+{
+    return y;
+}
+
+BonusType Bonus::getType()
+{
+    return type;
+}
+
+void Bonus::draw(Adafruit_SSD1306 *display)
+{
+    if (!isActive || type == b_none) return;
+    display->drawRect(x, y, BONUS_ICON_SIZE, BONUS_ICON_SIZE, WHITE);
+}
+
 void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height)
 {
     uint8_t buf[width*height/8];
@@ -772,3 +953,42 @@ void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const u
 	buf[i] = ~pgm_read_byte(bitmap + i);
     display->drawBitmap(x, y, buf, width, height, 1);
 }
+
+int getBonusDuration(BonusType bonus)
+{
+    switch (bonus) {
+	case b_diagonalBullets:
+	    return B_DIAGONALBULLETS_DURATION;
+	case b_doubleBullets: case b_tripleBullets:
+	    return B_MULTIPLEBULLETS_DURATION;
+    }
+}
+
+int getTotalBonusWeight()
+{
+    int totalWeight = 0;
+    for (int i = 0; i < BONUS_COUNT; i++) {
+	BonusData current;
+	memcpy_P(&current, &BONUS_TABLE[i], sizeof(BonusData));
+	totalWeight += current.weight;
+    }
+    return totalWeight;
+}
+
+BonusType generateRandomBonus()
+{
+    int totalWeight = getTotalBonusWeight();
+    if (totalWeight == 0) return b_none;
+
+    int roll = random(0, totalWeight);
+    int currentLimit = 0;
+
+    for (int i = 0; i < BONUS_COUNT; i++) {
+	BonusData current;
+	memcpy_P(&current, &BONUS_TABLE[i], sizeof(BonusData));
+	currentLimit += current.weight;
+	if (roll < currentLimit) return current.type;
+    }
+    return b_none;
+}
+

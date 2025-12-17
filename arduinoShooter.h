@@ -12,12 +12,16 @@
 #define OLED_RESET -1
 #define SCREEN_ADDRESS 0x3C
 
+#define HUD_WIDTH 90
+#define HUD_HEIGHT 7
+
 #define JOYSTICK_REAL_Y_PIN A0
 #define JOYSTICK_REAL_X_PIN A1
 #define JOYSTICK_BUTTON_PIN 3
 
 #define BULLET_WIDTH 3
 #define BULLET_HEIGHT 2 // if ySpeed == 2, then change HEIGHT to 3
+#define BULLET_SPREAD 4
 
 #define BULLET_POOL_SIZE 30
 #define BULLET_BURST 5
@@ -55,11 +59,11 @@
 #define UNPRESSED_BUTTON HIGH
 #define PRESSED_BUTTON LOW
 
-enum ShipType { friendly, enemy };
+#define BONUS_ICON_SIZE 5
+#define BONUS_XSPEED 1
 
-enum ShipBitmapType { normal_lvl1, enemy_lvl1 };
-
-enum BulletDirection { straight, diagonalUp, diagonalDown };
+#define B_DIAGONALBULLETS_DURATION 4000
+#define B_MULTIPLEBULLETS_DURATION 4000
 
 static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 0x00, 0x00, 0x07, 0x80, 0x08, 0x40, 0x16, 0x40, 0xE9, 0xC0, 0xE9, 0xC0, 0x16, 0x40, 0x08, 0x40, 0x07, 0x80, 0x00, 0x00
@@ -80,6 +84,30 @@ class SpaceShip;
 class Bullet;
 class BulletPool;
 class EnemyShipPool;
+class Bonus;
+
+enum ShipType { friendly, enemy };
+
+enum ShipBitmapType { normal_lvl1, enemy_lvl1 };
+
+enum BulletDirection { straight, diagonalUp, diagonalDown };
+
+enum BonusType { b_none, b_resetHealth, b_diagonalBullets, b_doubleBullets, b_tripleBullets };
+
+struct BonusData {
+    BonusType type;
+    uint8_t weight;
+};
+
+const BonusData BONUS_TABLE[] PROGMEM = {
+    { b_none, 50 },
+    { b_resetHealth, 30 },
+    { b_diagonalBullets, 25 },
+    { b_doubleBullets, 15 },
+    { b_tripleBullets, 10 }
+};
+
+const uint8_t BONUS_COUNT = sizeof(BONUS_TABLE) / sizeof(BONUS_TABLE[0]);
 
 struct BulletsToShoot {
     uint8_t straightBullets, diagonalBullets;
@@ -116,6 +144,7 @@ class Game
 	SpaceShip *spaceShip;
 	BulletPool *bulletPool;
 	EnemyShipPool *enemyPool;
+	Bonus *bonus;
 
 	GameOverAnimation gameOverAnimation;
 	uint32_t score;
@@ -175,17 +204,21 @@ class SpaceShip
         int8_t xSpeed, ySpeed;
         uint8_t width, height;
         int8_t maxHealth, health;
-        unsigned long shotTime;
         uint8_t straightShotCount;
 	uint8_t diagonalShotCount;
+        unsigned long shotTime;
+	unsigned long lastRandomMoveTime;
+	unsigned long bonusStartTime; // also used as end time
 	uint32_t killCount;
-	unsigned long lastRandomMove;
         bool burstEnded;
         bool isActive;
 	bool isMoving;
+	bool isBonusActive;
         ShipBitmapType bmpType;
         ShipType type;
         DeathAnimation deathAnimation;
+	BulletsToShoot bulletsToShoot;
+	BonusType activeBonus;
     public:
         SpaceShip() : SpaceShip(0, 0, 0, 0, DEFAULT_HEALTH, enemy_lvl1, enemy, false) {};
         SpaceShip(int16_t posX, int16_t posY, uint8_t bmpWidth, uint8_t bmpHeight, int8_t health, ShipBitmapType bmpType, ShipType type, bool isActive)
@@ -202,13 +235,18 @@ class SpaceShip
                 bmpType(bmpType),
                 type(type),
                 isActive(isActive),
+		isBonusActive(false),
                 straightShotCount(0),
                 diagonalShotCount(0),
                 shotTime(millis()),
-		lastRandomMove(millis()),
+		lastRandomMoveTime(millis()),
+		bonusStartTime(millis()),
 		isMoving(false),
+		activeBonus(b_none),
                 burstEnded(true) {
 		    deathAnimation.isHappening = false;
+		    bulletsToShoot.straightBullets = 1;
+		    bulletsToShoot.diagonalBullets = 0;
                 };
         void draw(Adafruit_SSD1306 *display);
 	void reset();
@@ -220,10 +258,12 @@ class SpaceShip
         uint8_t getHeight();
         bool getIsActive();
 	bool getIsMoving();
+	bool getIsBonusActive();
         int8_t getHealth();
 	uint8_t getLevel();
 	unsigned long getLastRandomMove();
 	unsigned long getLastShotTime();
+	unsigned long getBonusStartTime();
 	uint8_t getStraightShotCount();
 	uint8_t getDiagonalShotCount();
 	bool getDeathAnimationStatus();
@@ -235,17 +275,23 @@ class SpaceShip
         void setIsActive(bool isActive);
 	void setIsMoving(bool moving);
 	void setHealth(int8_t newHealth);
+	void setBulletsToShoot(uint8_t straightBullets, uint8_t diagonalBullets);
 	void resetHealth();
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
 	void setLevel(uint8_t lvl);
 	void setSpeed(int8_t speedX, int8_t speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
-        void shoot(BulletPool *bp, BulletsToShoot *bts);
+        void shoot(BulletPool *bp);
+        void shootStraight(BulletPool *bp, int straightBullets);
+        void shootDiagonally(BulletPool *bp, int diagonalBullets);
         unsigned long getCooldown();
 	bool isPointInside(int16_t px, int16_t py);
         bool isHitByBullet(Bullet *b, ShipType bulletType);
         void startDeathAnimation(int duration, int flicker_delay);
+	void handleBonus(BonusType bonus);
+	void activateBonus(BonusType bonus);
+	void resetBonus(BonusType bonus);
 };
 
 
@@ -301,6 +347,31 @@ class BulletPool
         void draw(Adafruit_SSD1306 *display);
 };
 
+class Bonus
+{
+    private:
+	int16_t x, y;
+	unsigned long lastBonusTime, cooldown;
+	bool isActive;
+	BonusType type;
+    public:
+	void set(int16_t posX, int16_t posY, BonusType bonusType);
+	void deactivate();
+	void startCooldown();
+	bool cooldownExpired();
+	void resetTimer();
+	bool shouldCreateBonus();
+	void updatePosition();
+	bool getIsActive();
+	int16_t getX();
+	int16_t getY();
+	BonusType getType();
+	void draw(Adafruit_SSD1306 *display);
+};
+
 void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height);
+int getBonusDuration(BonusType bonus);
+int getTotalBonusWeight();
+BonusType generateRandomBonus();
 
 #endif
