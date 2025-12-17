@@ -36,7 +36,7 @@ void Game::update()
     enemyPool->shoot(bulletPool);
 
     if (!firstLoop && jstick->getButtonState() == PRESSED_BUTTON) {
-        spaceShip->shoot(bulletPool);
+        spaceShip->shoot(bulletPool, NULL);
     }
     firstLoop = false;
     if (enemyPool->getActiveEnemyCount() <= 1 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
@@ -96,7 +96,7 @@ void Game::drawGameOver()
 void Game::drawHUD()
 {
     //display->drawRect(0, 0, 50, 10, WHITE);
-    display->fillRect(0, 0, 85, 7, WHITE);
+    display->fillRect(0, 0, 90, 7, WHITE);
     display->setCursor(1, 0);
     display->setTextColor(BLACK);
     display->setTextSize(1);
@@ -438,7 +438,7 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
     }
 }
 
-void SpaceShip::shoot(BulletPool *bp)
+void SpaceShip::shoot(BulletPool *bp, BulletsToShoot *bts)
 {
     unsigned long currTime = millis();
     if (!isActive) return;
@@ -462,39 +462,51 @@ void SpaceShip::shoot(BulletPool *bp)
 
     // burstEnded means "Ready to start/continue burst"
     if (burstEnded && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
-	int bulletsToFire = level;
 	int straightBullets;
-	int diagonalBullets = bulletsToFire - MAX_STRAIGHT_BULLETS;
+	int diagonalBullets;
+	if (bts != NULL) {
+	    straightBullets = bts->straightBullets;
+	    diagonalBullets = bts->diagonalBullets;
+	} else {
+	    int bulletsToFire = level;
+	    diagonalBullets =  bulletsToFire - MAX_STRAIGHT_BULLETS;
 
-	if (bulletsToFire > MAX_STRAIGHT_BULLETS)
-	    straightBullets = MAX_STRAIGHT_BULLETS;
-	else
-	    straightBullets = bulletsToFire;
+	    if (bulletsToFire > MAX_STRAIGHT_BULLETS)
+		straightBullets = MAX_STRAIGHT_BULLETS;
+	    else
+		straightBullets = bulletsToFire;
 
-	if (diagonalBullets < 0 || diagonalShotCount >= DIAGONAL_BURST
-		||  diagonalBullets % 2 != 0) {
-	    diagonalBullets = 0;
+	    if (diagonalBullets < 0 || diagonalShotCount >= DIAGONAL_BURST) {
+		diagonalBullets = 0;
+	    }
 	}
-
 	const int spread = 4;
 	int centerY = y + height/2;
-	BulletDirection direction;
 	int i;
 
 	for (i = 0; i < straightBullets; i++) {
-	    direction = straight;
 	    int bulletY;
 	    if (straightBullets == 1) {
 		bulletY = centerY;
 	    } else {
 		bulletY = centerY - spread / 2 + (spread * i) / (straightBullets - 1);
 	    }
-	    bp->fireBullet(x, bulletY, type, direction);
+	    bp->fireBullet(x, bulletY, type, straight);
 	}
 
 	for (i = 0; i < diagonalBullets; i++) {
-	    direction = (i%2==0) ? diagonalUp : diagonalDown;
-	    bp->fireBullet(x, centerY, type, direction);
+	    int offsetY;
+	    if (diagonalBullets == 1) {
+		offsetY = 0;
+	    } else {
+		int spreadFactor = (i*10) / (diagonalBullets-1);
+		int shift = (spreadFactor - 5) * spread;
+		offsetY = shift/10;
+	    }
+
+	    bp->fireBullet(x, centerY - offsetY, type, diagonalUp); // dont use usual x and y
+
+	    bp->fireBullet(x, centerY + offsetY, type, diagonalDown); // dont use usual x and y
 	}
 
         shotTime = currTime;
@@ -653,7 +665,7 @@ void EnemyShipPool::shoot(BulletPool *bp)
     for (int i = 0; i < poolSize; i++) {
 	SpaceShip *enemy = &pool[i];
 	if (enemy->getIsActive()) {
-	    enemy->shoot(bp);
+	    enemy->shoot(bp, NULL);
 	}
     }
 }

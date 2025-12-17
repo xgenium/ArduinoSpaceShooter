@@ -19,7 +19,7 @@
 #define BULLET_WIDTH 3
 #define BULLET_HEIGHT 2 // if ySpeed == 2, then change HEIGHT to 3
 
-#define BULLET_POOL_SIZE 20
+#define BULLET_POOL_SIZE 30
 #define BULLET_BURST 5
 #define DIAGONAL_BURST 3
 #define BURST_COOLDOWN 500
@@ -80,6 +80,10 @@ class SpaceShip;
 class Bullet;
 class BulletPool;
 class EnemyShipPool;
+
+struct BulletsToShoot {
+    uint8_t straightBullets, diagonalBullets;
+};
 
 struct DeathAnimation {
     bool inverted;
@@ -237,7 +241,7 @@ class SpaceShip
 	void setLevel(uint8_t lvl);
 	void setSpeed(int8_t speedX, int8_t speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
-        void shoot(BulletPool *bp);
+        void shoot(BulletPool *bp, BulletsToShoot *bts);
         unsigned long getCooldown();
 	bool isPointInside(int16_t px, int16_t py);
         bool isHitByBullet(Bullet *b, ShipType bulletType);
