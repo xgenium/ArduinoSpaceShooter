@@ -50,13 +50,16 @@ void Game::update()
 
     // BONUS HANDLING
     if (bonus->shouldCreateBonus()) {
-	int16_t x = -BONUS_ICON_SIZE;
-	int16_t y = random(HUD_HEIGHT, SCREEN_HEIGHT-BONUS_ICON_SIZE);
+	int16_t x = -BONUS_ICON_WIDTH;
+	int16_t y = random(HUD_HEIGHT, SCREEN_HEIGHT-BONUS_ICON_HEIGHT);
 	BonusType type = generateRandomBonus();
 	bonus->set(x, y, type);
     }
 
-    if (bonus->getIsActive() && spaceShip->isPointInside(bonus->getX(), bonus->getY())) {
+    if (bonus->getIsActive() &&
+	    spaceShip->isObjectInside(bonus->getX(), bonus->getY(),
+				    bonus->getX() + BONUS_ICON_WIDTH,
+				    bonus->getY() + BONUS_ICON_HEIGHT)) {
 	spaceShip->handleBonus(bonus->getType());
 	bonus->deactivate();
 	bonus->startCooldown();
@@ -584,6 +587,16 @@ bool SpaceShip::isPointInside(int16_t px, int16_t py)
       );
 }
 
+bool SpaceShip::isObjectInside(int16_t px0, int16_t py0, int16_t px1, int16_t py1)
+{
+  return (
+        px1 >= x &&
+        px0 <= x+width &&
+        py1 >= y &&
+        py0 <= y+height
+      );
+}
+
 bool SpaceShip::isHitByBullet(Bullet *b, ShipType bulletType)
 {
     bool isHit = isPointInside(b->x, b->y) && b->type == bulletType;
@@ -623,8 +636,8 @@ void SpaceShip::activateBonus(BonusType bonus)
     bonusStartTime = millis();
     activeBonus = bonus;
     switch (bonus) {
-	case b_resetHealth:
-	    health = maxHealth;
+	case b_addHealth:
+	    health += 3;
 	    isBonusActive = false;
 	    activeBonus = b_none;
 	    break;
@@ -884,7 +897,8 @@ void Bonus::set(int16_t posX, int16_t posY, BonusType bonusType)
 void Bonus::deactivate()
 {
     isActive = false;
-    x = y = -BONUS_ICON_SIZE;
+    x = BONUS_ICON_WIDTH;
+    y = BONUS_ICON_HEIGHT;
     type = b_none;
 }
 
@@ -916,7 +930,10 @@ void Bonus::updatePosition()
 {
     if (isActive) {
 	x++;
-	if (x >= SCREEN_WIDTH) isActive = false;
+	if (x >= SCREEN_WIDTH) {
+	    deactivate();
+	    startCooldown();
+	}
     }
 }
 
@@ -943,7 +960,15 @@ BonusType Bonus::getType()
 void Bonus::draw(Adafruit_SSD1306 *display)
 {
     if (!isActive || type == b_none) return;
-    display->drawRect(x, y, BONUS_ICON_SIZE, BONUS_ICON_SIZE, WHITE);
+    const uint8_t *bmp;
+    switch (type) {
+	case b_addHealth: bmp = b_addHealth_bmp; break;
+	case b_diagonalBullets: bmp = b_diagonalBullets_bmp; break;
+	case b_doubleBullets: bmp = b_doubleBullets_bmp; break;
+	case b_tripleBullets: bmp = b_tripleBullets_bmp; break;
+    }
+    display->drawBitmap(x, y, bmp, BONUS_ICON_WIDTH, BONUS_ICON_HEIGHT, WHITE);
+    display->drawRect(x, y, BONUS_ICON_WIDTH+1, BONUS_ICON_HEIGHT+1, WHITE);
 }
 
 void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height)
@@ -954,6 +979,8 @@ void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const u
     display->drawBitmap(x, y, buf, width, height, 1);
 }
 
+
+// TODO: FIX DURATION
 int getBonusDuration(BonusType bonus)
 {
     switch (bonus) {

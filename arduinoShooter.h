@@ -59,7 +59,8 @@
 #define UNPRESSED_BUTTON HIGH
 #define PRESSED_BUTTON LOW
 
-#define BONUS_ICON_SIZE 5
+#define BONUS_ICON_WIDTH 9
+#define BONUS_ICON_HEIGHT 7
 #define BONUS_XSPEED 1
 
 #define B_DIAGONALBULLETS_DURATION 4000
@@ -74,6 +75,22 @@ static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 static const unsigned char enemy_lvl1_bmp[] PROGMEM = {
 0x70, 0x00, 0x8c, 0x00, 0xf3, 0x00, 0x8c, 0x80, 0xf3, 0x40, 0xf3, 0x40, 0x8c, 0x80, 0xf3, 0x00, 
 0x8c, 0x00, 0x70, 0x00
+};
+
+static const unsigned char b_addHealth_bmp[] PROGMEM = {
+    0x08, 0x00, 0x08, 0x00, 0x08, 0x00, 0xFF, 0x80, 0x08, 0x00, 0x08, 0x00, 0x08, 0x00
+};
+
+static const unsigned char b_diagonalBullets_bmp[] PROGMEM = {
+    0x48, 0x00, 0x24, 0x00, 0x92, 0x00, 0x49, 0x00, 0x24, 0x80, 0x12, 0x00, 0x09, 0x00
+};
+
+static const unsigned char b_doubleBullets_bmp[] PROGMEM = {
+    0x00, 0x00, 0xFF, 0x80, 0xFF, 0x80, 0x00, 0x00, 0xFF, 0x80, 0xFF, 0x80, 0x00, 0x00
+};
+
+static const unsigned char b_tripleBullets_bmp[] PROGMEM = {
+    0x00, 0x00, 0xFF, 0x80, 0x00, 0x00, 0xFF, 0x80, 0x00, 0x00, 0xFF, 0x80, 0x00, 0x00
 };
 
 static const char gameOver_message[] PROGMEM = "GAME OVER";
@@ -92,7 +109,7 @@ enum ShipBitmapType { normal_lvl1, enemy_lvl1 };
 
 enum BulletDirection { straight, diagonalUp, diagonalDown };
 
-enum BonusType { b_none, b_resetHealth, b_diagonalBullets, b_doubleBullets, b_tripleBullets };
+enum BonusType { b_none, b_addHealth, b_diagonalBullets, b_doubleBullets, b_tripleBullets };
 
 struct BonusData {
     BonusType type;
@@ -101,7 +118,7 @@ struct BonusData {
 
 const BonusData BONUS_TABLE[] PROGMEM = {
     { b_none, 50 },
-    { b_resetHealth, 30 },
+    { b_addHealth, 30 },
     { b_diagonalBullets, 25 },
     { b_doubleBullets, 15 },
     { b_tripleBullets, 10 }
@@ -287,6 +304,7 @@ class SpaceShip
         void shootDiagonally(BulletPool *bp, int diagonalBullets);
         unsigned long getCooldown();
 	bool isPointInside(int16_t px, int16_t py);
+	bool isObjectInside(int16_t px0, int16_t py0, int16_t px1, int16_t py1);
         bool isHitByBullet(Bullet *b, ShipType bulletType);
         void startDeathAnimation(int duration, int flicker_delay);
 	void handleBonus(BonusType bonus);
