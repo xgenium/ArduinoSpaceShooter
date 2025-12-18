@@ -2,16 +2,18 @@
 #include "Arduino.h"
 #include "HardwareSerial.h"
 #include <avr/pgmspace.h>
+#include <cstdint>
 #include "arduinoShooter.h"
 
 void Game::init()
 {
     bulletPool->init();
+    spaceShip->setIsActive(true);
     enemyPool->init();
     bonus = new Bonus();
     bonus->deactivate();
 
-    shouldDrawWave = true;
+    boolVar = setToTrue(boolVar, G_SHOULDDRAWWAVE);
     waveTextStartTime = millis();
 }
 
@@ -44,19 +46,19 @@ void Game::update()
     handleBonus();
     enemyPool->shoot(bulletPool);
 
-    if (!firstLoop && jstick->getButtonState() == PRESSED_BUTTON) {
+    if (!getBoolVal(boolVar, G_FIRSTLOOP) && jstick->getButtonState() == PRESSED_BUTTON) {
         spaceShip->shoot(bulletPool);
     }
-    firstLoop = false;
+    boolVar = setToFalse(boolVar, G_FIRSTLOOP);
 
-    if (score >= 5 && shouldAddHealth && score % 5 == 0)
+    if (score >= 5 && getBoolVal(boolVar, G_SHOULDADDHEALTH) && score % 5 == 0)
 	spaceShip->addHealth(3);
 
     bulletPool->gameUpdate();
     spaceShip->gameUpdate(bulletPool, jstick);
     if (spaceShip->getHealth() <= 0 && !spaceShip->getDeathAnimationStatus()) {
 	delay(1000);
-	gameOver = true;
+	boolVar = setToTrue(boolVar, G_GAMEOVER);
     }
 }
 
@@ -107,15 +109,15 @@ void Game::drawHUD()
 void Game::drawWaveText()
 {
     if (millis() - waveTextStartTime >= WAVE_TEXT_DURATION) {
-	shouldDrawWave = false;
+	boolVar = setToFalse(boolVar, G_SHOULDDRAWWAVE);
     }
 
     constexpr int16_t x = SCREEN_WIDTH/2 - WAVE_RECT_WIDTH/2;
     constexpr int16_t y = SCREEN_HEIGHT/2 - WAVE_RECT_HEIGHT/2;
-    display->drawRect(x, y, WAVE_RECT_WIDTH, WAVE_RECT_HEIGHT, WHITE);
-    display->setCursor(x, y+1);
+    display->fillRect(x, y, WAVE_RECT_WIDTH, WAVE_RECT_HEIGHT, WHITE);
+    display->setCursor(x+1, y+1);
     display->setTextSize(1);
-    display->setTextColor(WHITE);
+    display->setTextColor(BLACK);
     display->print(F("Wave "));
     if (waveIndex >= WAVE_COUNT)
 	display->print("X");
@@ -137,8 +139,9 @@ void Game::draw()
     bulletPool->draw(display);
     enemyPool->draw(display);
     bonus->draw(display);
-    if (shouldDrawWave)
+    if (getBoolVal(boolVar, G_SHOULDDRAWWAVE)) {
 	drawWaveText();
+    }
     //drawScore();
 }
 
@@ -168,7 +171,7 @@ void Game::handleWaves()
     uint32_t maxScore = pgm_read_dword(&(WAVE_TABLE[waveIndex].maxScore));
     if (score >= maxScore) {
 	waveIndex++;
-	shouldDrawWave = true;
+	boolVar = setToTrue(boolVar, G_SHOULDDRAWWAVE);
 	waveTextStartTime = millis();
 	return;
     }
@@ -177,7 +180,7 @@ void Game::handleWaves()
 
     if (enemyPool->getActiveEnemyCount() < simCount
 	    && millis() - enemyPool->getLastShotEnemyTime() >= ENEMY_RESPAWN_COOLDOWN) {
-	Serial.println(F("create enemy"));
+	// Use appropriate sizes for each level
 	int randomX = random(0, SCREEN_WIDTH/2 - ENEMY_LVL1_WIDTH);
 	int randomY = random(0, SCREEN_HEIGHT - ENEMY_LVL1_HEIGHT);
 	enemyPool->createEnemy(randomX, randomY, 1);
@@ -191,12 +194,14 @@ void Game::updateScore(uint32_t add)
 
 void Game::setGameOver(bool isGameOver)
 {
-    gameOver = isGameOver;
+    boolVar = isGameOver ? setToTrue(boolVar, G_GAMEOVER)
+	: setToFalse(boolVar, G_GAMEOVER);
 }
 
 void Game::setGameStarted(bool isGameStarted)
 {
-    gameStarted = isGameStarted;
+    boolVar = isGameStarted ? setToTrue(boolVar, G_GAMESTARTED)
+	: setToFalse(boolVar, G_GAMESTARTED);
 }
 
 uint32_t Game::getScore()
@@ -206,12 +211,12 @@ uint32_t Game::getScore()
 
 bool Game::isGameOver()
 {
-    return gameOver;
+    return getBoolVal(boolVar, G_GAMEOVER);
 }
 
 bool Game::isGameStarted()
 {
-    return gameStarted;
+    return getBoolVal(boolVar, G_GAMESTARTED);
 }
 
 int Joystick::getX()
@@ -241,7 +246,7 @@ void SpaceShip::draw(Adafruit_SSD1306 *display)
         case normal_lvl1: bmp = normal_lvl1_bmp; break;
         case enemy_lvl1: bmp = enemy_lvl1_bmp; break;
     }
-    if (isActive && !deathAnimation.isHappening) {
+    if (getBoolVal(boolVar, S_ISACTIVE) && !deathAnimation.isHappening) {
         display->drawBitmap(x, y, bmp, width, height, 1);
     }
     if (deathAnimation.isHappening) {
@@ -270,12 +275,13 @@ void SpaceShip::reset()
     unsigned long currTime = millis();
     x = x1 = y = y1 = 0;
     xSpeed = ySpeed = 0;
-    isActive = false;
+    boolVar = setToFalse(boolVar, S_ISACTIVE);
+    health = maxHealth = level * LEVEL_HEALTH_SPREAD;
     straightShotCount = 0;
     diagonalShotCount = 0;
     shotTime = currTime;
     lastRandomMoveTime = currTime;
-    burstEnded = true;
+    boolVar = setToTrue(boolVar, S_BURSTENDED);
     deathAnimation.isHappening = false;
 }
 
@@ -311,17 +317,17 @@ uint8_t SpaceShip::getHeight()
 
 bool SpaceShip::getIsActive()
 {
-    return isActive;
+    return getBoolVal(boolVar, S_ISACTIVE);
 }
 
 bool SpaceShip::getIsMoving()
 {
-    return isMoving;
+    return getBoolVal(boolVar, S_ISMOVING);
 }
 
 bool SpaceShip::getIsBonusActive()
 {
-    return isBonusActive;
+    return getBoolVal(boolVar, S_ISBONUSACTIVE);
 }
 
 int8_t SpaceShip::getHealth()
@@ -332,6 +338,16 @@ int8_t SpaceShip::getHealth()
 int8_t SpaceShip::getMaxHealth()
 {
     return maxHealth;
+}
+
+void SpaceShip::updateMaxHealth()
+{
+    if (level == 1) {
+	if (type == friendly)
+	    maxHealth = FIRST_LEVEL_HEALTH;
+	else
+	    maxHealth = level * ENEMY_LEVEL_HEALTH_SPREAD;
+    } // TODO: FINISH
 }
 
 uint8_t SpaceShip::getLevel()
@@ -381,7 +397,7 @@ void SpaceShip::randomMove(int maxDistanceX, int maxDistanceY)
     x1 = (int)random(1, maxDistanceX+1);
     y1 = (int)random(1, maxDistanceY+1);
     lastRandomMoveTime = millis();
-    isMoving = true;
+    boolVar = setToTrue(boolVar, S_ISMOVING);
 }
 
 void SpaceShip::setPosition(int posX, int posY)
@@ -405,12 +421,12 @@ void SpaceShip::setBmpSettings(uint8_t bmpWidth, uint8_t bmpHeight, ShipBitmapTy
 
 void SpaceShip::setIsActive(bool active)
 {
-    isActive = active;
+    boolVar = active ? setToTrue(boolVar, S_ISACTIVE) : setToFalse(boolVar, S_ISACTIVE);
 }
 
 void SpaceShip::setIsMoving(bool moving)
 {
-    isMoving = moving;
+    boolVar = moving ? setToTrue(boolVar, S_ISMOVING) : setToFalse(boolVar, S_ISMOVING);
 }
 
 void SpaceShip::setHealth(int8_t newHealth)
@@ -487,7 +503,7 @@ void SpaceShip::updatePosition()
 	}
 
 	if (xSpeed == 0 && ySpeed == 0)
-	    isMoving = false;
+	    boolVar = setToFalse(boolVar, S_ISMOVING);
     } else {
 	x += xSpeed;
 	y += ySpeed;
@@ -512,7 +528,6 @@ void SpaceShip::setSpeed(int8_t speedX, int8_t speedY)
 
 void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 {
-    maxHealth = level * LEVEL_HEALTH_SPREAD;
     if (jstick != NULL) updateSpeed(jstick->getX(), jstick->getY());
 
     updatePosition();
@@ -525,11 +540,11 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
     for (int i = 0; i < bpSize; i++) {
         Bullet *b = bp->getBulletByIndex(i);
         if (b->isActive) {
-	    if (isActive && isHitByBullet(b, enemy)) {
+	    if (getBoolVal(boolVar, S_ISACTIVE) && isHitByBullet(b, enemy)) {
                 bp->destroyBulletByIndex(i);
 		startDeathAnimation(250, 50);
 		if (health <= 0) {
-		    isActive = false;
+		    boolVar = setToFalse(boolVar, S_ISACTIVE);
 		    startDeathAnimation(DEFAULT_DEATH_ANIMATION_DURATION, DEFAULT_FLICKER_DELAY);
 		}
 	    }
@@ -539,21 +554,21 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 
 void SpaceShip::shoot(BulletPool *bp)
 {
-    if (!isActive) return;
+    if (!getBoolVal(boolVar, S_ISACTIVE)) return;
 
     unsigned long currTime = millis();
 
     switch (type) {
 	case friendly:
 	    if (currTime - shotTime >= BURST_COOLDOWN) {
-		burstEnded = true;
+		boolVar = setToTrue(boolVar, S_BURSTENDED);
 		straightShotCount = 0;
 		diagonalShotCount = 0;
 	    }
 	    break;
 	case enemy:
 	    if (currTime - shotTime >= random(800, 1200)) {
-		burstEnded = true;
+		boolVar = setToTrue(boolVar, S_BURSTENDED);
 		straightShotCount = 0;
 		diagonalShotCount = 0;
 	    }
@@ -561,7 +576,7 @@ void SpaceShip::shoot(BulletPool *bp)
     }
 
     // burstEnded means "Ready to start/continue burst"
-    if (burstEnded && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
+    if (getBoolVal(boolVar, S_BURSTENDED) && (currTime - shotTime >= SHOOTING_COOLDOWN)) {
 	int straightBullets;
 	int diagonalBullets;
 
@@ -589,9 +604,9 @@ void SpaceShip::shoot(BulletPool *bp)
 
         shotTime = currTime;
         if (straightShotCount >= BULLET_BURST && type == friendly) {
-            burstEnded = false;
-	} else if (straightShotCount >= random(1, BULLET_BURST-2) && type == enemy) {
-            burstEnded = false;
+	    boolVar = setToFalse(boolVar, S_BURSTENDED);
+	} else if (straightShotCount >= random(1, BULLET_BURST-1) && type == enemy) {
+	    boolVar = setToFalse(boolVar, S_BURSTENDED);
 	}
     }
 }
@@ -682,7 +697,7 @@ void SpaceShip::handleBonus(BonusType bonus)
 {
     unsigned long currTime = millis();
     if (activeBonus == b_none && bonus == b_none) return;
-    if (!isBonusActive) {
+    if (!getIsBonusActive()) {
 	activateBonus(bonus);
     } else {
 	if (currTime - bonusStartTime >= getBonusDuration(activeBonus)) {
@@ -693,13 +708,21 @@ void SpaceShip::handleBonus(BonusType bonus)
 
 void SpaceShip::activateBonus(BonusType bonus)
 {
-    isBonusActive = true;
+    boolVar = setToTrue(boolVar, S_ISBONUSACTIVE);
     bonusStartTime = millis();
     activeBonus = bonus;
     switch (bonus) {
 	case b_addHealth:
-	    health += (health > maxHealth-3) ? 0 : 3;
-	    isBonusActive = false;
+	    Serial.print(health); Serial.print(" "); Serial.print(maxHealth);
+	    if (health <= (maxHealth - B_ADDHEALTH_AMOUNT)) {
+		Serial.println("less");
+		health += B_ADDHEALTH_AMOUNT;
+	    }
+	    else if (health < maxHealth) {
+		Serial.println("add");
+		health += maxHealth - health;
+	    }
+	    boolVar = setToFalse(boolVar, S_ISBONUSACTIVE);
 	    activeBonus = b_none;
 	    break;
 	case b_diagonalBullets:
@@ -718,7 +741,7 @@ void SpaceShip::activateBonus(BonusType bonus)
 
 void SpaceShip::resetBonus(BonusType bonus)
 {
-    isBonusActive = false;
+    boolVar = setToFalse(boolVar, S_ISBONUSACTIVE);
     activeBonus = b_none;
     switch (bonus) {
 	case b_diagonalBullets:
@@ -755,13 +778,10 @@ void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t level)
     unsigned long currTime = millis();
     uint8_t width, height;
     ShipBitmapType bmpType;
-    switch (level) {
-	case 1:
-	    width = ENEMY_LVL1_WIDTH;
-	    height = ENEMY_LVL1_HEIGHT;
-	    bmpType = enemy_lvl1;
-	    break;
-    }
+    width = getWidthForShip(level, enemy);
+    height = getHeightForShip(level, enemy);
+    bmpType = getBmpTypeForShip(level, enemy);
+
     int originalNextIndex = nextAvailableIndex;
     int i = originalNextIndex;
     do {
@@ -1090,6 +1110,7 @@ BonusType generateRandomBonus()
     int currentLimit = 0;
 
     for (int i = 0; i < BONUS_COUNT; i++) {
+	return b_addHealth;
 	BonusData current;
 	memcpy_P(&current, &BONUS_TABLE[i], sizeof(BonusData));
 	currentLimit += current.weight;
@@ -1098,3 +1119,51 @@ BonusType generateRandomBonus()
     return b_none;
 }
 
+uint8_t setToTrue(uint8_t var, uint8_t bitmask)
+{
+    return var | bitmask;
+}
+
+
+uint8_t setToFalse(uint8_t var, uint8_t bitmask)
+{
+    return var & ~bitmask;
+}
+
+bool getBoolVal(uint8_t var, uint8_t bitmask)
+{
+    return var & bitmask;
+}
+
+uint8_t getWidthForShip(uint8_t level, ShipType type)
+{
+    switch (level) {
+	case 1:
+	    if (type == friendly)
+		return NORMAL_LVL1_WIDTH;
+	    else
+		return ENEMY_LVL1_WIDTH;
+    }
+}
+
+uint8_t getHeightForShip(uint8_t level, ShipType type)
+{
+    switch (level) {
+	case 1:
+	    if (type == friendly)
+		return NORMAL_LVL1_HEIGHT;
+	    else
+		return ENEMY_LVL1_HEIGHT;
+    }
+}
+
+ShipBitmapType getBmpTypeForShip(uint8_t level, ShipType type)
+{
+    switch (level) {
+	case 1:
+	    if (type == friendly)
+		return normal_lvl1;
+	    else
+		return enemy_lvl1;
+    }
+}

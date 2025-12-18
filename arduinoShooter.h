@@ -35,7 +35,9 @@
 #define BURST_COOLDOWN 500
 #define MAX_STRAIGHT_BULLETS 3
 
-#define LEVEL_HEALTH_SPREAD 3
+#define FIRST_LEVEL_HEALTH 4
+#define LEVEL_HEALTH_SPREAD 2
+#define ENEMY_LEVEL_HEALTH_SPREAD 2
 
 #define ENEMY_RESPAWN_COOLDOWN 1200
 #define ENEMY_SHOOTING_SPREAD 800
@@ -56,8 +58,6 @@
 #define DEFAULT_DEATH_ANIMATION_DURATION 800
 #define DEFAULT_FLICKER_DELAY 100
 
-#define DEFAULT_HEALTH 3
-
 #define INITIAL_X ((SCREEN_WIDTH / 4) * 3 - NORMAL_LVL1_WIDTH)
 #define INITIAL_Y ((SCREEN_HEIGHT / 4) * 3 - NORMAL_LVL1_HEIGHT)
 
@@ -74,17 +74,23 @@
 #define BONUS_ICON_HEIGHT 7
 #define BONUS_XSPEED 1
 
+#define B_ADDHEALTH_AMOUNT 3
 #define B_DIAGONALBULLETS_DURATION 4000
 #define B_MULTIPLEBULLETS_DURATION 4000
 
 // BITMASKS
-// class Game (G_)
 
-#define G_GAMEOVER 0b00000001
-#define G_FIRSTLOOP 0b00000010
-#define G_GAMESTARTED 0b00000100
-#define G_SHOULDADDHEALTH 0b00001000
-#define G_SHOULDDRAWWAVE 0b00010000
+// class Game (G_)
+#define G_GAMEOVER (1<<0)
+#define G_FIRSTLOOP (1<<1)
+#define G_GAMESTARTED (1<<2)
+#define G_SHOULDADDHEALTH (1<<3)
+#define G_SHOULDDRAWWAVE (1<<4)
+//class SpaceShip (S_)
+#define S_BURSTENDED (1<<0)
+#define S_ISACTIVE (1<<1)
+#define S_ISMOVING (1<<2)
+#define S_ISBONUSACTIVE (1<<3)
 
 static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 0x00, 0x00, 0x07, 0x80, 0x08, 0x40, 0x16, 0x40, 0xE9, 0xC0, 0xE9, 0xC0, 0x16, 0x40, 0x08, 0x40, 0x07, 0x80, 0x00, 0x00
@@ -187,6 +193,19 @@ const WaveData LastWave PROGMEM = {
 
 const uint8_t WAVE_COUNT = sizeof(WAVE_TABLE) / sizeof(WAVE_TABLE[0]);
 
+
+void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height);
+int getBonusDuration(BonusType bonus);
+int getTotalBonusWeight();
+BonusType generateRandomBonus();
+uint8_t getWidthForShip(uint8_t level, ShipType type);
+uint8_t getHeightForShip(uint8_t level, ShipType type);
+ShipBitmapType getBmpTypeForShip(uint8_t level, ShipType type);
+
+uint8_t setToTrue(uint8_t var, uint8_t bitmask);
+uint8_t setToFalse(uint8_t var, uint8_t bitmask);
+bool getBoolVal(uint8_t var, uint8_t bitmask);
+
 // TODO: Use single byte with bitmask instead of bool variables
 // Example: DRAW_WAVE = 0b00000001; IS_PAUSED = 0b00000010; ...
 
@@ -204,20 +223,16 @@ class Game
 	unsigned long waveTextStartTime;
 	uint32_t score;
 	uint8_t waveIndex;
-	bool gameOver;
-	bool firstLoop;
-	bool gameStarted;
-	bool shouldAddHealth;
-	bool shouldDrawWave;
+	uint8_t boolVar;
     public:
 	Game(Adafruit_SSD1306 *d, Joystick *j, SpaceShip *ss, BulletPool *bp, EnemyShipPool *ep) :
 	    display(d), jstick(j), spaceShip(ss), bulletPool(bp), enemyPool(ep),
-	    score(0), waveIndex(0), firstLoop(true), gameOver(false), gameStarted(false),
-	    shouldAddHealth(false), shouldDrawWave(false) {
+	    score(0), waveIndex(0) {
 		gameOverAnimation.x = INITIAL_CHAR_X;
 		gameOverAnimation.y = INITIAL_CHAR_Y;
 		gameOverAnimation.readTime = 0;
 		gameOverAnimation.outputCharCount = 0;
+		boolVar = setToTrue(boolVar, G_FIRSTLOOP);
 	    };
 	void init();
 	bool startScreen();
@@ -233,9 +248,6 @@ class Game
 	void updateScore(uint32_t add);
 	void setGameOver(bool isGameOver);
 	void setGameStarted(bool isGameStarted);
-	// TODO: FINISH
-	void setToFalse(uint8_t bitmask);
-	bool getBool(uint8_t bitmask);
 	uint32_t getScore();
 	bool isGameOver();
 	bool isGameStarted();
@@ -276,40 +288,35 @@ class SpaceShip
 	unsigned long lastRandomMoveTime;
 	unsigned long bonusStartTime; // also used as end time
 	uint32_t killCount;
-        bool burstEnded;
-        bool isActive;
-	bool isMoving;
-	bool isBonusActive;
+	uint8_t boolVar;
         ShipBitmapType bmpType;
         ShipType type;
         DeathAnimation deathAnimation;
 	BulletsToShoot bulletsToShoot;
 	BonusType activeBonus;
     public:
-        SpaceShip() : SpaceShip(0, 0, 0, 0, DEFAULT_HEALTH, enemy_lvl1, enemy, false) {};
-        SpaceShip(int16_t posX, int16_t posY, uint8_t bmpWidth, uint8_t bmpHeight, int8_t health, ShipBitmapType bmpType, ShipType type, bool isActive)
+        SpaceShip() : SpaceShip(0, 0, enemy, 1) {};
+        SpaceShip(int16_t posX, int16_t posY, ShipType type, uint8_t lvl)
             :   x(posX),
                 y(posY),
 		x1(posX), y1(posY),
                 xSpeed(0),
                 ySpeed(0),
-		level(1),
-                width(bmpWidth),
-                height(bmpHeight),
-                maxHealth(health),
-                health(health),
-                bmpType(bmpType),
+		level(lvl),
                 type(type),
-                isActive(isActive),
-		isBonusActive(false),
+		width(getWidthForShip(level, type)),
+		height(getHeightForShip(level, type)),
+		bmpType(getBmpTypeForShip(level, type)),
+		maxHealth(level*LEVEL_HEALTH_SPREAD),
+		health(maxHealth),
                 straightShotCount(0),
                 diagonalShotCount(0),
                 shotTime(millis()),
 		lastRandomMoveTime(millis()),
 		bonusStartTime(millis()),
-		isMoving(false),
-		activeBonus(b_none),
-                burstEnded(true) {
+		activeBonus(b_none) {
+		    boolVar = setToTrue(boolVar, S_BURSTENDED);
+
 		    deathAnimation.isHappening = false;
 		    bulletsToShoot.straightBullets = 1;
 		    bulletsToShoot.diagonalBullets = 0;
@@ -327,6 +334,7 @@ class SpaceShip
 	bool getIsBonusActive();
         int8_t getHealth();
 	int8_t getMaxHealth();
+	void updateMaxHealth();
 	uint8_t getLevel();
 	unsigned long getLastRandomMove();
 	unsigned long getLastShotTime();
@@ -441,9 +449,5 @@ class Bonus
 	void draw(Adafruit_SSD1306 *display);
 };
 
-void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height);
-int getBonusDuration(BonusType bonus);
-int getTotalBonusWeight();
-BonusType generateRandomBonus();
 
 #endif
