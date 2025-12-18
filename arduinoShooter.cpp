@@ -2,7 +2,6 @@
 #include "Arduino.h"
 #include "HardwareSerial.h"
 #include <avr/pgmspace.h>
-#include <cstdint>
 #include "arduinoShooter.h"
 
 void Game::init()
@@ -51,8 +50,17 @@ void Game::update()
     }
     boolVar = setToFalse(boolVar, G_FIRSTLOOP);
 
-    if (score >= 5 && getBoolVal(boolVar, G_SHOULDADDHEALTH) && score % 5 == 0)
+    if (score >= 3 && getBoolVal(boolVar, G_SHOULDADDHEALTH) && score % 3 == 0)
 	spaceShip->addHealth(3);
+
+    if (score >= SCORE_FOR_NEXT_LEVEL && (score % SCORE_FOR_NEXT_LEVEL == 0)) {
+	if (getBoolVal(boolVar, G_CANINCREASELVL)) {
+	    spaceShip->increaseLevel();
+	    boolVar = setToFalse(boolVar, G_CANINCREASELVL);
+	}
+    } else {
+	boolVar = setToTrue(boolVar, G_CANINCREASELVL);
+    }
 
     bulletPool->gameUpdate();
     spaceShip->gameUpdate(bulletPool, jstick);
@@ -88,6 +96,17 @@ void Game::drawGameOver()
 
 	    g->outputCharCount++;
 	}
+    } else {
+	delay(1000);
+	constexpr int width = 50;
+	constexpr int height = 10;
+	constexpr int x = (SCREEN_WIDTH/2) - width/2;
+	constexpr int y = (SCREEN_HEIGHT/2) - height/2;
+	display->fillRect(x, y, width, height, BLACK);
+	display->setCursor(x+1, y+1);
+	display->setTextSize(1);
+	display->print(F("score: "));
+	display->print(score);
     }
 }
 
@@ -177,13 +196,17 @@ void Game::handleWaves()
     }
 
     uint8_t simCount = pgm_read_dword(&(WAVE_TABLE[waveIndex].simultaneousEnemyCount));
+    uint8_t minLvl = pgm_read_dword(&(WAVE_TABLE[waveIndex].minEnemyLevel));
+    uint8_t maxLvl = pgm_read_dword(&(WAVE_TABLE[waveIndex].maxEnemyLevel));
+    uint8_t lvlDistr = pgm_read_dword(&(WAVE_TABLE[waveIndex].enemyLevelDistribution));
 
     if (enemyPool->getActiveEnemyCount() < simCount
 	    && millis() - enemyPool->getLastShotEnemyTime() >= ENEMY_RESPAWN_COOLDOWN) {
 	// Use appropriate sizes for each level
-	int randomX = random(0, SCREEN_WIDTH/2 - ENEMY_LVL1_WIDTH);
-	int randomY = random(0, SCREEN_HEIGHT - ENEMY_LVL1_HEIGHT);
-	enemyPool->createEnemy(randomX, randomY, 1);
+	uint8_t randomLvl = getRandomLevel(minLvl, maxLvl, lvlDistr);
+	int randomX = random(0, SCREEN_WIDTH/2 - getWidthForShip(randomLvl, enemy));
+	int randomY = random(0, SCREEN_HEIGHT - getHeightForShip(randomLvl, enemy));
+	enemyPool->createEnemy(randomX, randomY, randomLvl);
     }
 }
 
@@ -242,10 +265,13 @@ void Joystick::loop()
 void SpaceShip::draw(Adafruit_SSD1306 *display)
 {
     const uint8_t *bmp;
+    // REMEMBER TO CHANGE THIS IF YOU ADD NEW SPRITES!!!!
     switch (bmpType) {
-        case normal_lvl1: bmp = normal_lvl1_bmp; break;
-        case enemy_lvl1: bmp = enemy_lvl1_bmp; break;
-    }
+	case normal_lvl1: bmp = normal_lvl1_bmp; break;
+	case enemy_lvl1: bmp = enemy_lvl1_bmp; break;
+	case enemy_lvl2: bmp = enemy_lvl2_bmp; break;
+	case enemy_lvl3: bmp = enemy_lvl3_bmp; break;
+     }
     if (getBoolVal(boolVar, S_ISACTIVE) && !deathAnimation.isHappening) {
         display->drawBitmap(x, y, bmp, width, height, 1);
     }
@@ -342,12 +368,10 @@ int8_t SpaceShip::getMaxHealth()
 
 void SpaceShip::updateMaxHealth()
 {
-    if (level == 1) {
-	if (type == friendly)
-	    maxHealth = FIRST_LEVEL_HEALTH;
-	else
-	    maxHealth = level * ENEMY_LEVEL_HEALTH_SPREAD;
-    } // TODO: FINISH
+    if (type == friendly)
+	maxHealth = FIRST_LEVEL_HEALTH + level * LEVEL_HEALTH_SPREAD;
+    else
+	maxHealth = ENEMY_FIRST_LEVEL_HEALTH + level * ENEMY_LEVEL_HEALTH_SPREAD;
 }
 
 uint8_t SpaceShip::getLevel()
@@ -507,6 +531,7 @@ void SpaceShip::updatePosition()
     } else {
 	x += xSpeed;
 	y += ySpeed;
+	if (x <= SCREEN_WIDTH/2) x -= xSpeed;
     }
 
     if (x < 0) x = 0;
@@ -518,6 +543,16 @@ void SpaceShip::updatePosition()
 void SpaceShip::setLevel(uint8_t lvl)
 {
     level = lvl;
+    updateMaxHealth();
+    health = maxHealth;
+}
+
+void SpaceShip::increaseLevel()
+{
+    if (level >= MAX_LEVEL) return;
+    level++;
+    updateMaxHealth();
+    health = maxHealth;
 }
 
 void SpaceShip::setSpeed(int8_t speedX, int8_t speedY)
@@ -531,6 +566,7 @@ void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
     if (jstick != NULL) updateSpeed(jstick->getX(), jstick->getY());
 
     updatePosition();
+    updateMaxHealth();
 
     if (type == enemy) return;
 
@@ -713,13 +749,10 @@ void SpaceShip::activateBonus(BonusType bonus)
     activeBonus = bonus;
     switch (bonus) {
 	case b_addHealth:
-	    Serial.print(health); Serial.print(" "); Serial.print(maxHealth);
 	    if (health <= (maxHealth - B_ADDHEALTH_AMOUNT)) {
-		Serial.println("less");
 		health += B_ADDHEALTH_AMOUNT;
 	    }
 	    else if (health < maxHealth) {
-		Serial.println("add");
 		health += maxHealth - health;
 	    }
 	    boolVar = setToFalse(boolVar, S_ISBONUSACTIVE);
@@ -790,8 +823,8 @@ void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t level)
 	    enemyShip->reset();
 	    activeEnemyCount++;
 
+	    enemyShip->setLevel(level);
 	    enemyShip->setIsActive(true);
-	    enemyShip->setHealth(DEFAULT_HEALTH);
 	    enemyShip->setBulletsToShoot(1, 0);
 	    // dont make them should simultaneously
 	    enemyShip->setRandomLastShotTime(ENEMY_SHOOTING_SPREAD);
@@ -813,6 +846,7 @@ int EnemyShipPool::gameUpdate(BulletPool *bp)
 {
     randomMove();
     updatePosition();
+    updateMaxHealth();
 
     int8_t bpSize = bp->getPoolSize();
     for (int8_t i = 0; i < bpSize; i++) {
@@ -829,7 +863,7 @@ int EnemyShipPool::gameUpdate(BulletPool *bp)
 			activeEnemyCount--;
 			enemyShip->setIsActive(false);
 			enemyShip->startDeathAnimation(DEFAULT_DEATH_ANIMATION_DURATION, DEFAULT_FLICKER_DELAY);
-			return 1;
+			return enemyShip->getLevel();
 		    }
 		}
 	    }
@@ -844,6 +878,15 @@ void EnemyShipPool::updatePosition()
 	SpaceShip *ship = &pool[i];
 	if (ship->getIsActive())
 	    ship->updatePosition();
+    }
+}
+
+void EnemyShipPool::updateMaxHealth()
+{
+    for (int i = 0; i < poolSize; i++) {
+	SpaceShip *ship = &pool[i];
+	if (ship->getIsActive())
+	    ship->updateMaxHealth();
     }
 }
 
@@ -1079,6 +1122,19 @@ void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const u
     display->drawBitmap(x, y, buf, width, height, 1);
 }
 
+// uint8_t *getBmpByType(uint8_t width, uint8_t height, ShipBitmapType bmpType)
+// {
+//     const uint8_t *bmp;
+//     switch (bmpType) {
+//	    case normal_lvl1: bmp = normal_lvl1_bmp; break;
+//	    case enemy_lvl1: bmp = enemy_lvl1_bmp; break;
+//	    case enemy_lvl2: bmp = enemy_lvl2_bmp; break;
+//     }
+//     uint8_t buf[width*height/8];
+//     for (uint8_t i = 0; i < sizeof(buf); i++)
+// 	buf[i] = pgm_read_byte(bmp + i);
+//     return buf;
+// }
 
 int getBonusDuration(BonusType bonus)
 {
@@ -1110,7 +1166,6 @@ BonusType generateRandomBonus()
     int currentLimit = 0;
 
     for (int i = 0; i < BONUS_COUNT; i++) {
-	return b_addHealth;
 	BonusData current;
 	memcpy_P(&current, &BONUS_TABLE[i], sizeof(BonusData));
 	currentLimit += current.weight;
@@ -1137,33 +1192,82 @@ bool getBoolVal(uint8_t var, uint8_t bitmask)
 
 uint8_t getWidthForShip(uint8_t level, ShipType type)
 {
-    switch (level) {
-	case 1:
-	    if (type == friendly)
+    if (type == friendly) {
+	switch (level) {
+	    case 1: default:
 		return NORMAL_LVL1_WIDTH;
-	    else
-		return ENEMY_LVL1_WIDTH;
+	}
+    } else {
+	switch (level) {
+	    case 1: return ENEMY_LVL1_WIDTH;
+	    case 2: return ENEMY_LVL2_WIDTH;
+	    case 3: return ENEMY_LVL3_WIDTH;
+	}
     }
 }
 
 uint8_t getHeightForShip(uint8_t level, ShipType type)
 {
-    switch (level) {
-	case 1:
-	    if (type == friendly)
+    if (type == friendly) {
+	switch (level) {
+	    case 1: default:
 		return NORMAL_LVL1_HEIGHT;
-	    else
-		return ENEMY_LVL1_HEIGHT;
+	}
+    } else {
+	switch (level) {
+	    case 1: return ENEMY_LVL1_HEIGHT;
+	    case 2: return ENEMY_LVL2_HEIGHT;
+	    case 3: return ENEMY_LVL3_HEIGHT;
+	}
     }
 }
 
 ShipBitmapType getBmpTypeForShip(uint8_t level, ShipType type)
 {
-    switch (level) {
-	case 1:
-	    if (type == friendly)
+    if (type == friendly) {
+	switch (level) {
+	    case 1: default:
 		return normal_lvl1;
-	    else
-		return enemy_lvl1;
+	}
+    } else {
+	switch (level) {
+	    case 1: return enemy_lvl1;
+	    case 2: return enemy_lvl2;
+	    case 3: return enemy_lvl3;
+	}
     }
+}
+
+// maybe change later because I don't even remember how it works
+uint8_t getRandomLevel(uint8_t minLvl, uint8_t maxLvl, uint8_t lvlDistr)
+{
+    if (minLvl == maxLvl) return minLvl;
+    if (lvlDistr == 10) return maxLvl;
+    else if (lvlDistr == 1) return minLvl;
+    uint8_t lvlCount = (maxLvl - minLvl) + 1;
+    uint8_t weights[lvlCount];
+    int totalWeight = 0;
+
+    // Map intensity (1-10) to a position in our level array (0 to numLevels-1);
+    // use 100 as a multiplier to keep precision without floats
+    int targetPosFixed = ((lvlDistr-1) * (lvlCount-1) * 100) / 9;
+    for (int i = 0; i < lvlCount; i++) {
+	int currPosFixed = i*100;
+	int distance = abs(targetPosFixed - currPosFixed);
+
+	int w = 100 - (distance/2);
+	if (w < 1) w = 1; // every level has at least tiny chance
+	weights[i] = w;
+	totalWeight += w;
+    }
+
+    int roll = random(1, totalWeight);
+    unsigned long currSum = 0;
+
+    for (int i = 0; i < lvlCount; i++) {
+	currSum += weights[i];
+	if (roll < currSum) return minLvl + i;
+    }
+
+    return maxLvl;
 }

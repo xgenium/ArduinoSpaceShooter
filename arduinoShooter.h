@@ -35,15 +35,26 @@
 #define BURST_COOLDOWN 500
 #define MAX_STRAIGHT_BULLETS 3
 
+#define MAX_LEVEL 5
+#define SCORE_FOR_NEXT_LEVEL 7
+
 #define FIRST_LEVEL_HEALTH 4
+#define ENEMY_FIRST_LEVEL_HEALTH 3
 #define LEVEL_HEALTH_SPREAD 2
 #define ENEMY_LEVEL_HEALTH_SPREAD 2
 
 #define ENEMY_RESPAWN_COOLDOWN 1200
 #define ENEMY_SHOOTING_SPREAD 800
 
+
 #define ENEMY_LVL1_WIDTH 10
 #define ENEMY_LVL1_HEIGHT 10
+// change height with width if something doesnt look right
+#define ENEMY_LVL2_WIDTH 12
+#define ENEMY_LVL2_HEIGHT 8
+
+#define ENEMY_LVL3_WIDTH 12
+#define ENEMY_LVL3_HEIGHT 8
 
 #define NORMAL_LVL1_WIDTH 10
 #define NORMAL_LVL1_HEIGHT 10
@@ -79,13 +90,14 @@
 #define B_MULTIPLEBULLETS_DURATION 4000
 
 // BITMASKS
-
+// use it instead of multiple booleans
 // class Game (G_)
 #define G_GAMEOVER (1<<0)
 #define G_FIRSTLOOP (1<<1)
 #define G_GAMESTARTED (1<<2)
 #define G_SHOULDADDHEALTH (1<<3)
 #define G_SHOULDDRAWWAVE (1<<4)
+#define G_CANINCREASELVL (1<<5)
 //class SpaceShip (S_)
 #define S_BURSTENDED (1<<0)
 #define S_ISACTIVE (1<<1)
@@ -101,6 +113,14 @@ static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 static const unsigned char enemy_lvl1_bmp[] PROGMEM = {
 0x70, 0x00, 0x8c, 0x00, 0xf3, 0x00, 0x8c, 0x80, 0xf3, 0x40, 0xf3, 0x40, 0x8c, 0x80, 0xf3, 0x00, 
 0x8c, 0x00, 0x70, 0x00
+};
+
+static const unsigned char enemy_lvl2_bmp[] PROGMEM = {
+    0xc0, 0x00, 0xb0, 0x00, 0x88, 0x00, 0x87, 0xf0, 0x87, 0xf0, 0x88, 0x00, 0xb0, 0x00, 0xc0, 0x00
+};
+
+static const unsigned char enemy_lvl3_bmp[] PROGMEM = {
+    0x0C, 0x00, 0x3F, 0x80, 0x4C, 0x60, 0xBF, 0x90, 0xBF, 0x90, 0x4C, 0x60, 0x3F, 0x80, 0x0C, 0x00
 };
 
 static const unsigned char b_addHealth_bmp[] PROGMEM = {
@@ -133,7 +153,8 @@ class Bonus;
 
 enum ShipType { friendly, enemy };
 
-enum ShipBitmapType { normal_lvl1, enemy_lvl1 };
+// REMEMBER TO ADD NEW TYPES WHEN YOU ADD SPRITES
+enum ShipBitmapType { normal_lvl1, enemy_lvl1, enemy_lvl2, enemy_lvl3 };
 
 enum BulletDirection { straight, diagonalUp, diagonalDown };
 
@@ -176,15 +197,17 @@ struct GameOverAnimation {
 
 struct WaveData {
     uint8_t simultaneousEnemyCount;
-    uint8_t minEnemyLevel, maxEnemyLevel; // TODO: implement this
+    uint8_t minEnemyLevel, maxEnemyLevel;
     uint8_t enemyLevelDistribution; // 1 (only min levels) - 10 (only max levels)
     uint32_t maxScore;
 };
 
 const WaveData WAVE_TABLE[] PROGMEM = {
-    { 2, 1, 1, 10, 10 },
-    { 3, 1, 2, 4, 20 },
-    { 3, 1, 3, 6, 30 }
+    { 2, 1, 1, 10, 5 },
+    { 3, 1, 2, 7, 10 },
+    { 3, 1, 3, 6, 15 },
+    { 2, 2, 3, 5, 20 }
+    // ... continue
 };
 
 const WaveData LastWave PROGMEM = {
@@ -193,7 +216,7 @@ const WaveData LastWave PROGMEM = {
 
 const uint8_t WAVE_COUNT = sizeof(WAVE_TABLE) / sizeof(WAVE_TABLE[0]);
 
-
+// uint8_t *getBmpByType(uint8_t width, uint8_t height, ShipBitmapType bmpType);
 void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width, uint8_t height);
 int getBonusDuration(BonusType bonus);
 int getTotalBonusWeight();
@@ -201,13 +224,11 @@ BonusType generateRandomBonus();
 uint8_t getWidthForShip(uint8_t level, ShipType type);
 uint8_t getHeightForShip(uint8_t level, ShipType type);
 ShipBitmapType getBmpTypeForShip(uint8_t level, ShipType type);
+uint8_t getRandomLevel(uint8_t minLvl, uint8_t maxLvl, uint8_t lvlDistr);
 
 uint8_t setToTrue(uint8_t var, uint8_t bitmask);
 uint8_t setToFalse(uint8_t var, uint8_t bitmask);
 bool getBoolVal(uint8_t var, uint8_t bitmask);
-
-// TODO: Use single byte with bitmask instead of bool variables
-// Example: DRAW_WAVE = 0b00000001; IS_PAUSED = 0b00000010; ...
 
 class Game
 {
@@ -304,17 +325,19 @@ class SpaceShip
                 ySpeed(0),
 		level(lvl),
                 type(type),
+		maxHealth(FIRST_LEVEL_HEALTH),
+		health(maxHealth),
 		width(getWidthForShip(level, type)),
 		height(getHeightForShip(level, type)),
 		bmpType(getBmpTypeForShip(level, type)),
-		maxHealth(level*LEVEL_HEALTH_SPREAD),
-		health(maxHealth),
                 straightShotCount(0),
                 diagonalShotCount(0),
                 shotTime(millis()),
 		lastRandomMoveTime(millis()),
 		bonusStartTime(millis()),
 		activeBonus(b_none) {
+		    updateMaxHealth();
+
 		    boolVar = setToTrue(boolVar, S_BURSTENDED);
 
 		    deathAnimation.isHappening = false;
@@ -358,6 +381,7 @@ class SpaceShip
         void updateSpeed(int xJoystick, int yJoystick);
         void updatePosition();
 	void setLevel(uint8_t lvl);
+	void increaseLevel();
 	void setSpeed(int8_t speedX, int8_t speedY);
         void gameUpdate(BulletPool *bp, Joystick *jstick);
         void shoot(BulletPool *bp);
@@ -388,6 +412,7 @@ class EnemyShipPool
         void init();
 	void createEnemy(int16_t x, int16_t y, uint8_t level);
         int gameUpdate(BulletPool *bp);
+	void updateMaxHealth();
 	void updatePosition();
 	void randomMove();
         void draw(Adafruit_SSD1306 *display);
