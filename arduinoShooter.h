@@ -12,8 +12,14 @@
 #define OLED_RESET -1
 #define SCREEN_ADDRESS 0x3C
 
-#define HUD_WIDTH 90
+#define UINT32_MAX 4294967295
+
+#define HUD_WIDTH 80
 #define HUD_HEIGHT 7
+
+#define WAVE_RECT_WIDTH 35
+#define WAVE_RECT_HEIGHT 10
+#define WAVE_TEXT_DURATION 2000
 
 #define JOYSTICK_REAL_Y_PIN A0
 #define JOYSTICK_REAL_X_PIN A1
@@ -28,6 +34,11 @@
 #define DIAGONAL_BURST 3
 #define BURST_COOLDOWN 500
 #define MAX_STRAIGHT_BULLETS 3
+
+#define LEVEL_HEALTH_SPREAD 3
+
+#define ENEMY_RESPAWN_COOLDOWN 1200
+#define ENEMY_SHOOTING_SPREAD 800
 
 #define ENEMY_LVL1_WIDTH 10
 #define ENEMY_LVL1_HEIGHT 10
@@ -66,6 +77,15 @@
 #define B_DIAGONALBULLETS_DURATION 4000
 #define B_MULTIPLEBULLETS_DURATION 4000
 
+// BITMASKS
+// class Game (G_)
+
+#define G_GAMEOVER 0b00000001
+#define G_FIRSTLOOP 0b00000010
+#define G_GAMESTARTED 0b00000100
+#define G_SHOULDADDHEALTH 0b00001000
+#define G_SHOULDDRAWWAVE 0b00010000
+
 static const unsigned char normal_lvl1_bmp[] PROGMEM = {
 0x00, 0x00, 0x07, 0x80, 0x08, 0x40, 0x16, 0x40, 0xE9, 0xC0, 0xE9, 0xC0, 0x16, 0x40, 0x08, 0x40, 0x07, 0x80, 0x00, 0x00
 };
@@ -94,6 +114,8 @@ static const unsigned char b_tripleBullets_bmp[] PROGMEM = {
 };
 
 static const char gameOver_message[] PROGMEM = "GAME OVER";
+
+static const bool godMode = false; // true for godmode; false otherwise
 
 class Game;
 class Joystick;
@@ -146,12 +168,27 @@ struct GameOverAnimation {
     uint8_t outputCharCount;
 };
 
-struct Wave {
-    uint8_t enemyCount;
-    uint8_t minEnemyLevel, maxEnemyLevel;
+struct WaveData {
+    uint8_t simultaneousEnemyCount;
+    uint8_t minEnemyLevel, maxEnemyLevel; // TODO: implement this
     uint8_t enemyLevelDistribution; // 1 (only min levels) - 10 (only max levels)
-    int maxScore;
+    uint32_t maxScore;
 };
+
+const WaveData WAVE_TABLE[] PROGMEM = {
+    { 2, 1, 1, 10, 10 },
+    { 3, 1, 2, 4, 20 },
+    { 3, 1, 3, 6, 30 }
+};
+
+const WaveData LastWave PROGMEM = {
+    3, 1, 3, 5, UINT32_MAX
+};
+
+const uint8_t WAVE_COUNT = sizeof(WAVE_TABLE) / sizeof(WAVE_TABLE[0]);
+
+// TODO: Use single byte with bitmask instead of bool variables
+// Example: DRAW_WAVE = 0b00000001; IS_PAUSED = 0b00000010; ...
 
 class Game
 {
@@ -164,14 +201,19 @@ class Game
 	Bonus *bonus;
 
 	GameOverAnimation gameOverAnimation;
+	unsigned long waveTextStartTime;
 	uint32_t score;
+	uint8_t waveIndex;
 	bool gameOver;
 	bool firstLoop;
 	bool gameStarted;
+	bool shouldAddHealth;
+	bool shouldDrawWave;
     public:
 	Game(Adafruit_SSD1306 *d, Joystick *j, SpaceShip *ss, BulletPool *bp, EnemyShipPool *ep) :
 	    display(d), jstick(j), spaceShip(ss), bulletPool(bp), enemyPool(ep),
-	    score(0), firstLoop(true), gameOver(false), gameStarted(false) {
+	    score(0), waveIndex(0), firstLoop(true), gameOver(false), gameStarted(false),
+	    shouldAddHealth(false), shouldDrawWave(false) {
 		gameOverAnimation.x = INITIAL_CHAR_X;
 		gameOverAnimation.y = INITIAL_CHAR_Y;
 		gameOverAnimation.readTime = 0;
@@ -182,11 +224,18 @@ class Game
 	void update();
 	void drawGameOver();
 	void drawHUD();
+	void drawWaveText();
 	void drawScore();
 	void draw();
+	void handleBonus();
+	void handleWaves();
+	void loadWave(int index);
 	void updateScore(uint32_t add);
 	void setGameOver(bool isGameOver);
 	void setGameStarted(bool isGameStarted);
+	// TODO: FINISH
+	void setToFalse(uint8_t bitmask);
+	bool getBool(uint8_t bitmask);
 	uint32_t getScore();
 	bool isGameOver();
 	bool isGameStarted();
@@ -277,6 +326,7 @@ class SpaceShip
 	bool getIsMoving();
 	bool getIsBonusActive();
         int8_t getHealth();
+	int8_t getMaxHealth();
 	uint8_t getLevel();
 	unsigned long getLastRandomMove();
 	unsigned long getLastShotTime();
@@ -292,6 +342,9 @@ class SpaceShip
         void setIsActive(bool isActive);
 	void setIsMoving(bool moving);
 	void setHealth(int8_t newHealth);
+	void setMaxHealth(int8_t newMaxHealth);
+	void setLastShotTime(unsigned long time);
+	void addHealth(int8_t toAdd);
 	void setBulletsToShoot(uint8_t straightBullets, uint8_t diagonalBullets);
 	void resetHealth();
         void updateSpeed(int xJoystick, int yJoystick);
@@ -310,6 +363,7 @@ class SpaceShip
 	void handleBonus(BonusType bonus);
 	void activateBonus(BonusType bonus);
 	void resetBonus(BonusType bonus);
+	void setRandomLastShotTime(unsigned int spread);
 };
 
 
@@ -324,7 +378,7 @@ class EnemyShipPool
     public:
         EnemyShipPool() : poolSize(3), nextAvailableIndex(0), activeEnemyCount(0) {};
         void init();
-        void createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t height, ShipBitmapType bmpType);
+	void createEnemy(int16_t x, int16_t y, uint8_t level);
         int gameUpdate(BulletPool *bp);
 	void updatePosition();
 	void randomMove();

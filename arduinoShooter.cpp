@@ -1,5 +1,6 @@
 #include "Adafruit_SSD1306.h"
 #include "Arduino.h"
+#include "HardwareSerial.h"
 #include <avr/pgmspace.h>
 #include "arduinoShooter.h"
 
@@ -9,6 +10,9 @@ void Game::init()
     enemyPool->init();
     bonus = new Bonus();
     bonus->deactivate();
+
+    shouldDrawWave = true;
+    waveTextStartTime = millis();
 }
 
 bool Game::startScreen()
@@ -35,6 +39,9 @@ void Game::update()
 
     int add = enemyPool->gameUpdate(bulletPool);
     if (add > 0) updateScore(add);
+
+    handleWaves();
+    handleBonus();
     enemyPool->shoot(bulletPool);
 
     if (!firstLoop && jstick->getButtonState() == PRESSED_BUTTON) {
@@ -42,43 +49,8 @@ void Game::update()
     }
     firstLoop = false;
 
-    if (enemyPool->getActiveEnemyCount() <= 1 && millis() - enemyPool->getLastShotEnemyTime() >= 1200) {
-	int randomX = random(0, SCREEN_WIDTH/2 - ENEMY_LVL1_WIDTH);
-	int randomY = random(0, SCREEN_HEIGHT - ENEMY_LVL1_HEIGHT);
-	enemyPool->createEnemy(randomX, randomY, ENEMY_LVL1_WIDTH, ENEMY_LVL1_HEIGHT, enemy_lvl1);
-    }
-
-    // BONUS HANDLING
-    if (bonus->shouldCreateBonus()) {
-	int16_t x = -BONUS_ICON_WIDTH;
-	int16_t y = random(HUD_HEIGHT, SCREEN_HEIGHT-BONUS_ICON_HEIGHT);
-	BonusType type = generateRandomBonus();
-	bonus->set(x, y, type);
-    }
-
-    if (bonus->getIsActive() &&
-	    spaceShip->isObjectInside(bonus->getX(), bonus->getY(),
-				    bonus->getX() + BONUS_ICON_WIDTH,
-				    bonus->getY() + BONUS_ICON_HEIGHT)) {
-	spaceShip->handleBonus(bonus->getType());
-	bonus->deactivate();
-	bonus->startCooldown();
-    }
-
-    bonus->updatePosition();
-
-    if (score >= 3 && score % 3 == 0)
-	spaceShip->resetHealth();
-
-    if (score < 5) {
-	spaceShip->setLevel(1);
-    } else if (score < 10) {
-	spaceShip->setLevel(2);
-    } else if (score < 15){
-	spaceShip->setLevel(3);
-    } else {
-	spaceShip->setLevel(5);
-    }
+    if (score >= 5 && shouldAddHealth && score % 5 == 0)
+	spaceShip->addHealth(3);
 
     bulletPool->gameUpdate();
     spaceShip->gameUpdate(bulletPool, jstick);
@@ -124,12 +96,31 @@ void Game::drawHUD()
     display->setCursor(1, 0);
     display->setTextColor(BLACK);
     display->setTextSize(1);
-    display->print("LVL:");
+    display->print(F("LVL"));
     display->print(spaceShip->getLevel());
-    display->print(" S:");
+    display->print(F(" S:"));
     display->print(score);
-    display->print(" H:");
+    display->print(F(" H:"));
     display->print(spaceShip->getHealth());
+}
+
+void Game::drawWaveText()
+{
+    if (millis() - waveTextStartTime >= WAVE_TEXT_DURATION) {
+	shouldDrawWave = false;
+    }
+
+    constexpr int16_t x = SCREEN_WIDTH/2 - WAVE_RECT_WIDTH/2;
+    constexpr int16_t y = SCREEN_HEIGHT/2 - WAVE_RECT_HEIGHT/2;
+    display->drawRect(x, y, WAVE_RECT_WIDTH, WAVE_RECT_HEIGHT, WHITE);
+    display->setCursor(x, y+1);
+    display->setTextSize(1);
+    display->setTextColor(WHITE);
+    display->print(F("Wave "));
+    if (waveIndex >= WAVE_COUNT)
+	display->print("X");
+    else
+	display->print(waveIndex + 1);
 }
 
 void Game::drawScore()
@@ -146,7 +137,51 @@ void Game::draw()
     bulletPool->draw(display);
     enemyPool->draw(display);
     bonus->draw(display);
+    if (shouldDrawWave)
+	drawWaveText();
     //drawScore();
+}
+
+void Game::handleBonus()
+{
+    if (bonus->shouldCreateBonus()) {
+	int16_t x = -BONUS_ICON_WIDTH;
+	int16_t y = random(HUD_HEIGHT, SCREEN_HEIGHT-BONUS_ICON_HEIGHT);
+	BonusType type = generateRandomBonus();
+	bonus->set(x, y, type);
+    }
+
+    if (bonus->getIsActive() &&
+	    spaceShip->isObjectInside(bonus->getX(), bonus->getY(),
+				    bonus->getX() + BONUS_ICON_WIDTH,
+				    bonus->getY() + BONUS_ICON_HEIGHT)) {
+	spaceShip->handleBonus(bonus->getType());
+	bonus->deactivate();
+	bonus->startCooldown();
+    }
+
+    bonus->updatePosition();
+}
+
+void Game::handleWaves()
+{
+    uint32_t maxScore = pgm_read_dword(&(WAVE_TABLE[waveIndex].maxScore));
+    if (score >= maxScore) {
+	waveIndex++;
+	shouldDrawWave = true;
+	waveTextStartTime = millis();
+	return;
+    }
+
+    uint8_t simCount = pgm_read_dword(&(WAVE_TABLE[waveIndex].simultaneousEnemyCount));
+
+    if (enemyPool->getActiveEnemyCount() < simCount
+	    && millis() - enemyPool->getLastShotEnemyTime() >= ENEMY_RESPAWN_COOLDOWN) {
+	Serial.println(F("create enemy"));
+	int randomX = random(0, SCREEN_WIDTH/2 - ENEMY_LVL1_WIDTH);
+	int randomY = random(0, SCREEN_HEIGHT - ENEMY_LVL1_HEIGHT);
+	enemyPool->createEnemy(randomX, randomY, 1);
+    }
 }
 
 void Game::updateScore(uint32_t add)
@@ -294,6 +329,11 @@ int8_t SpaceShip::getHealth()
     return health;
 }
 
+int8_t SpaceShip::getMaxHealth()
+{
+    return maxHealth;
+}
+
 uint8_t SpaceShip::getLevel()
 {
     return level;
@@ -378,6 +418,21 @@ void SpaceShip::setHealth(int8_t newHealth)
     health = newHealth;
 }
 
+void SpaceShip::setMaxHealth(int8_t newMaxHealth)
+{
+    maxHealth = newMaxHealth;
+}
+
+void SpaceShip::setLastShotTime(unsigned long time)
+{
+    shotTime = time;
+}
+
+void SpaceShip::addHealth(int8_t toAdd)
+{
+    health += (health >= maxHealth) ? 0 : toAdd;
+}
+
 void SpaceShip::setBulletsToShoot(uint8_t straightBullets, uint8_t diagonalBullets)
 {
     bulletsToShoot.straightBullets = straightBullets;
@@ -457,11 +512,14 @@ void SpaceShip::setSpeed(int8_t speedX, int8_t speedY)
 
 void SpaceShip::gameUpdate(BulletPool *bp, Joystick *jstick)
 {
+    maxHealth = level * LEVEL_HEALTH_SPREAD;
     if (jstick != NULL) updateSpeed(jstick->getX(), jstick->getY());
 
     updatePosition();
 
     if (type == enemy) return;
+
+    handleBonus(b_none);
 
     int bpSize = bp->getPoolSize();
     for (int i = 0; i < bpSize; i++) {
@@ -532,7 +590,7 @@ void SpaceShip::shoot(BulletPool *bp)
         shotTime = currTime;
         if (straightShotCount >= BULLET_BURST && type == friendly) {
             burstEnded = false;
-	} else if (straightShotCount >= random(1, BULLET_BURST+1) && type == enemy) {
+	} else if (straightShotCount >= random(1, BULLET_BURST-2) && type == enemy) {
             burstEnded = false;
 	}
     }
@@ -600,6 +658,9 @@ bool SpaceShip::isObjectInside(int16_t px0, int16_t py0, int16_t px1, int16_t py
 bool SpaceShip::isHitByBullet(Bullet *b, ShipType bulletType)
 {
     bool isHit = isPointInside(b->x, b->y) && b->type == bulletType;
+    if (type == friendly && godMode)
+	return isHit;
+
     if (isHit) {
 	health -= b->damage;
     }
@@ -637,7 +698,7 @@ void SpaceShip::activateBonus(BonusType bonus)
     activeBonus = bonus;
     switch (bonus) {
 	case b_addHealth:
-	    health += 3;
+	    health += (health > maxHealth-3) ? 0 : 3;
 	    isBonusActive = false;
 	    activeBonus = b_none;
 	    break;
@@ -674,6 +735,11 @@ void SpaceShip::resetBonus(BonusType bonus)
     }
 }
 
+void SpaceShip::setRandomLastShotTime(unsigned int spread)
+{
+    unsigned long currTime = millis();
+    shotTime = random(currTime-spread, currTime);
+}
 
 void EnemyShipPool::init()
 {
@@ -684,8 +750,18 @@ void EnemyShipPool::init()
     }
 }
 
-void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t height, ShipBitmapType bmpType)
+void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t level)
 {
+    unsigned long currTime = millis();
+    uint8_t width, height;
+    ShipBitmapType bmpType;
+    switch (level) {
+	case 1:
+	    width = ENEMY_LVL1_WIDTH;
+	    height = ENEMY_LVL1_HEIGHT;
+	    bmpType = enemy_lvl1;
+	    break;
+    }
     int originalNextIndex = nextAvailableIndex;
     int i = originalNextIndex;
     do {
@@ -697,6 +773,8 @@ void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t width, uint8_t hei
 	    enemyShip->setIsActive(true);
 	    enemyShip->setHealth(DEFAULT_HEALTH);
 	    enemyShip->setBulletsToShoot(1, 0);
+	    // dont make them should simultaneously
+	    enemyShip->setRandomLastShotTime(ENEMY_SHOOTING_SPREAD);
 	    enemyShip->setPosition(x, y);
 	    enemyShip->randomMove(
 			    SCREEN_WIDTH / 3 - enemyShip->getWidth(),
@@ -725,6 +803,8 @@ int EnemyShipPool::gameUpdate(BulletPool *bp)
                 if (enemyShip->getIsActive() && enemyShip->isHitByBullet(b, friendly)) {
 		    bp->destroyBulletByIndex(i);
 		    if (enemyShip->getHealth() <= 0) {
+			// I know that it updates every time enemy is shot
+			// idc though, at least it works
 			lastShotEnemyTime = millis();
 			activeEnemyCount--;
 			enemyShip->setIsActive(false);
@@ -980,7 +1060,6 @@ void drawInvertedBitmap(Adafruit_SSD1306 *display, uint8_t x, uint8_t y, const u
 }
 
 
-// TODO: FIX DURATION
 int getBonusDuration(BonusType bonus)
 {
     switch (bonus) {
