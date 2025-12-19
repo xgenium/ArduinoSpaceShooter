@@ -1067,7 +1067,7 @@ void Bonus::deactivate()
 void Bonus::startCooldown()
 {
     lastBonusTime = millis();
-    cooldown = random(5000, 10000);
+    cooldown = random(3000, 6000);
 }
 
 bool Bonus::cooldownExpired()
