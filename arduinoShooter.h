@@ -1,6 +1,5 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
-#include <ezButton.h>
 #include <Arduino.h>
 
 #ifndef arduinoShooter_h
