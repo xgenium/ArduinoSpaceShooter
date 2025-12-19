@@ -63,6 +63,7 @@ void Game::update()
     }
 
     if (score >= SCORE_FOR_NEXT_LEVEL && (score % SCORE_FOR_NEXT_LEVEL == 0)) {
+	Serial.println(1);
 	if (getBoolVal(boolVar, G_CANINCREASELVL)) {
 	    spaceShip->increaseLevel();
 	    boolVar = setToFalse(boolVar, G_CANINCREASELVL);
