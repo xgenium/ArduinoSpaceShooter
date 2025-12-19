@@ -46,8 +46,21 @@ void Game::update()
     }
     boolVar = setToFalse(boolVar, G_FIRSTLOOP);
 
-    if (score >= 3 && getBoolVal(boolVar, G_SHOULDADDHEALTH) && score % 3 == 0)
-	spaceShip->addHealth(3);
+    if (score >= 3 && score % 3 == 0) {
+	if (getBoolVal(boolVar, G_SHOULDADDHEALTH)) {
+	    int8_t toAdd;
+	    if (spaceShip->getHealth() <= (spaceShip->getMaxHealth()-3))
+		toAdd = 3;
+	    else if (spaceShip->getHealth() >= spaceShip->getMaxHealth())
+		toAdd = 0;
+	    else
+		toAdd = spaceShip->getMaxHealth() - spaceShip->getHealth();
+	    spaceShip->addHealth(toAdd);
+	    boolVar = setToFalse(boolVar, G_SHOULDADDHEALTH);
+	}
+    } else {
+	boolVar = setToTrue(boolVar, G_SHOULDADDHEALTH);
+    }
 
     if (score >= SCORE_FOR_NEXT_LEVEL && (score % SCORE_FOR_NEXT_LEVEL == 0)) {
 	if (getBoolVal(boolVar, G_CANINCREASELVL)) {
