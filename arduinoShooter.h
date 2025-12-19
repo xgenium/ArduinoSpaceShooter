@@ -278,20 +278,17 @@ class Joystick
 {
     private:
         int pin_x, pin_y, btnPin;
-        ezButton button;
     public:
         Joystick(int pinX, int pinY, int pinButton)
             :   pin_x(pinX),
                 pin_y(pinY),
-                btnPin(pinButton),
-                button(btnPin, INPUT_PULLUP)
+                btnPin(pinButton)
         {
-            button.setDebounceTime(20);
+	    pinMode(btnPin, INPUT_PULLUP);
         }
         int getX();
         int getY();
         int getButtonState();
-        void loop();
 };
 
 class SpaceShip

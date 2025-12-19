@@ -1,6 +1,5 @@
 #include "Adafruit_SSD1306.h"
 #include "Arduino.h"
-#include "HardwareSerial.h"
 #include <avr/pgmspace.h>
 #include "arduinoShooter.h"
 
@@ -26,7 +25,6 @@ bool Game::startScreen()
     display->println(F("SHOOTER"));
     display->display();
     for (;;) {
-	jstick->loop();
 	if (jstick->getButtonState() == PRESSED_BUTTON) {
 	    return true;
 	}
@@ -36,8 +34,6 @@ bool Game::startScreen()
 
 void Game::update()
 {
-    jstick->loop();
-
     int add = enemyPool->gameUpdate(bulletPool);
     if (add > 0) updateScore(add);
 
@@ -254,12 +250,7 @@ int Joystick::getY()
 
 int Joystick::getButtonState()
 {
-    return button.getState();
-}
-
-void Joystick::loop()
-{
-    button.loop();
+    return digitalRead(btnPin);
 }
 
 void SpaceShip::draw(Adafruit_SSD1306 *display)
