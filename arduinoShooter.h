@@ -204,9 +204,9 @@ struct WaveData {
 
 const WaveData WAVE_TABLE[] PROGMEM = {
     { 2, 1, 1, 10, 5 },
-    { 3, 1, 2, 7, 10 },
-    { 3, 1, 3, 6, 15 },
-    { 2, 2, 3, 5, 20 }
+    { 2, 1, 2, 7, 10 },
+    { 2, 2, 3, 7, 15 },
+    { 3, 1, 3, 6, 20 }
     // ... continue
 };
 
@@ -393,6 +393,7 @@ class SpaceShip
 	void activateBonus(BonusType bonus);
 	void resetBonus(BonusType bonus);
 	void setRandomLastShotTime(unsigned int spread);
+	void setRandomLastRandomMoveTime(unsigned int spread);
 };
 
 

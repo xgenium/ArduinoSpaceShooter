@@ -808,6 +808,13 @@ void SpaceShip::setRandomLastShotTime(unsigned int spread)
     shotTime = random(currTime-spread, currTime);
 }
 
+void SpaceShip::setRandomLastRandomMoveTime(unsigned int spread)
+{
+    unsigned long currTime = millis();
+    lastRandomMoveTime = random(currTime-spread, currTime);
+}
+
+
 void EnemyShipPool::init()
 {
     for (int i = 0; i < poolSize; i++) {
@@ -844,6 +851,7 @@ void EnemyShipPool::createEnemy(int16_t x, int16_t y, uint8_t level)
 			    SCREEN_WIDTH / 3 - enemyShip->getWidth(),
 			    SCREEN_HEIGHT - enemyShip->getHeight()
 			);
+	    enemyShip->setRandomLastRandomMoveTime(RANDOM_MOVE_COOLDOWN);
 	    enemyShip->setBmpSettings(width, height, bmpType);
 
             nextAvailableIndex = (i + 1) % poolSize;
