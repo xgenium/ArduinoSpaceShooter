@@ -74,8 +74,8 @@ void Game::update()
     bulletPool->gameUpdate();
     spaceShip->gameUpdate(bulletPool, jstick);
     if (spaceShip->getHealth() <= 0 && !spaceShip->getDeathAnimationStatus()) {
-	delay(1000);
 	boolVar = setToTrue(boolVar, G_GAMEOVER);
+	delay(1000);
     }
 }
 
