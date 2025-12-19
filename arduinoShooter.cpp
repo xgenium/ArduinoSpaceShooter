@@ -675,7 +675,7 @@ void SpaceShip::shootDiagonally(BulletPool *bp, int diagonalBullets)
 	}
 
 	int centerY = y + height/2;
-	bp->fireBullet(x, centerY - offsetY, type, diagonalUp); // dont use usual x and y
+	bp->fireBullet(x, centerY - offsetY, type, diagonalUp);
 	bp->fireBullet(x, centerY + offsetY, type, diagonalDown);
     }
     diagonalShotCount += (diagonalBullets > 0) ? 1 : 0;
@@ -708,6 +708,13 @@ bool SpaceShip::isObjectInside(int16_t px0, int16_t py0, int16_t px1, int16_t py
 
 bool SpaceShip::isHitByBullet(Bullet *b, ShipType bulletType)
 {
+    int16_t bx, by;
+    bx = (b->type == enemy) ? b->x + BULLET_WIDTH : b->x;
+    if (b->type == enemy) {
+	if (b->ySpeed < 0) by = b->y - BULLET_HEIGHT;
+	else if (b->ySpeed > 0) by = b->y + BULLET_HEIGHT;
+	else by = b->y;
+    }
     bool isHit = isPointInside(b->x, b->y) && b->type == bulletType;
     if (type == friendly && godMode)
 	return isHit;
