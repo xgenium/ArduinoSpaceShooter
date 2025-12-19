@@ -147,10 +147,7 @@ void Game::drawWaveText()
     display->setTextSize(1);
     display->setTextColor(BLACK);
     display->print(F("Wave "));
-    if (waveIndex >= WAVE_COUNT)
-	display->print("X");
-    else
-	display->print(waveIndex + 1);
+    display->print(waveIndex + 1);
 }
 
 void Game::drawScore()

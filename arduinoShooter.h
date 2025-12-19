@@ -206,12 +206,9 @@ const WaveData WAVE_TABLE[] PROGMEM = {
     { 2, 1, 1, 10, 5 },
     { 2, 1, 2, 7, 10 },
     { 2, 2, 3, 7, 15 },
-    { 3, 1, 3, 6, 20 }
+    { 3, 1, 3, 6, 20 },
+    { 3, 1, 3, 5, 100 }
     // ... continue
-};
-
-const WaveData LastWave PROGMEM = {
-    3, 1, 3, 5, UINT32_MAX
 };
 
 const uint8_t WAVE_COUNT = sizeof(WAVE_TABLE) / sizeof(WAVE_TABLE[0]);
